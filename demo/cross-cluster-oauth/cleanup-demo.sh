@@ -62,16 +62,41 @@ oc_m delete namespace "$TENANT_NS" --ignore-not-found --wait=false
 log_info "AITenant and namespace $TENANT_NS deletion requested"
 
 # =========================================================================
-# Step 3: Delete Gateway
+# Step 3: Detach agents gateway from model HTTPRoute
 # =========================================================================
-log_step 3 "Deleting Gateway"
+log_step 3 "Detaching agents gateway from model HTTPRoute"
+MODEL_ROUTE="facebook-opt-125m-simulated-kserve-route"
+PARENT_REFS=$(oc_m get httproute "$MODEL_ROUTE" -n llm \
+    -o jsonpath='{range .spec.parentRefs[*]}{.name}{"\n"}{end}' 2>/dev/null || echo "")
+if echo "$PARENT_REFS" | grep -q "agents-maas-gateway"; then
+    NEW_REFS=$(oc_m get httproute "$MODEL_ROUTE" -n llm -o json 2>/dev/null \
+        | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+d['spec']['parentRefs']=[r for r in d['spec']['parentRefs'] if r.get('name')!='agents-maas-gateway']
+print(json.dumps(d['spec']['parentRefs']))
+" 2>/dev/null || echo "")
+    if [ -n "$NEW_REFS" ]; then
+        oc_m patch httproute "$MODEL_ROUTE" -n llm \
+            --type=merge -p "{\"spec\":{\"parentRefs\":${NEW_REFS}}}" > /dev/null 2>&1 \
+            && log_info "Agents gateway removed from model HTTPRoute" \
+            || log_warn "Could not remove agents gateway from HTTPRoute"
+    fi
+else
+    log_info "Agents gateway not in model HTTPRoute — skipping"
+fi
+
+# =========================================================================
+# Step 4: Delete Gateway
+# =========================================================================
+log_step 4 "Deleting Gateway"
 oc_m delete gateway agents-maas-gateway -n openshift-ingress --ignore-not-found --wait=false
 log_info "Gateway deleted"
 
 # =========================================================================
-# Step 4: Delete Keycloak agent-realm
+# Step 5: Delete Keycloak agent-realm
 # =========================================================================
-log_step 4 "Deleting Keycloak agent-realm"
+log_step 5 "Deleting Keycloak agent-realm"
 
 if [ -z "$KEYCLOAK_URL" ]; then
     log_warn "Keycloak not found on cluster — skipping realm deletion"
@@ -93,40 +118,37 @@ else
 fi
 
 # =========================================================================
-# Step 5: Detach agents gateway from model HTTPRoute
+# Step 6: Removing gateway-access namespace labels
 # =========================================================================
-log_step 5 "Detaching agents gateway from model HTTPRoute"
-MODEL_ROUTE="facebook-opt-125m-simulated-kserve-route"
-PARENT_REFS=$(oc_m get httproute "$MODEL_ROUTE" -n llm \
-    -o jsonpath='{range .spec.parentRefs[*]}{.name}{"\n"}{end}' 2>/dev/null || echo "")
-if echo "$PARENT_REFS" | grep -q "agents-maas-gateway"; then
-    # Remove agents-maas-gateway from parentRefs, keep others
-    NEW_REFS=$(oc_m get httproute "$MODEL_ROUTE" -n llm -o json 2>/dev/null \
-        | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-d['spec']['parentRefs']=[r for r in d['spec']['parentRefs'] if r.get('name')!='agents-maas-gateway']
-print(json.dumps(d['spec']['parentRefs']))
-" 2>/dev/null || echo "")
-    if [ -n "$NEW_REFS" ]; then
-        oc_m patch httproute "$MODEL_ROUTE" -n llm \
-            --type=merge -p "{\"spec\":{\"parentRefs\":${NEW_REFS}}}" > /dev/null 2>&1 \
-            && log_info "Agents gateway removed from model HTTPRoute" \
-            || log_warn "Could not remove agents gateway from HTTPRoute"
-    fi
-else
-    log_info "Agents gateway not in model HTTPRoute — skipping"
-fi
-
 log_step 6 "Removing gateway-access namespace labels"
 oc_m label namespace redhat-ai-gateway-infra maas.opendatahub.io/gateway-access-agents- 2>/dev/null || true
 oc_m label namespace llm maas.opendatahub.io/gateway-access-agents- 2>/dev/null || true
 log_info "Namespace labels removed"
 
 # =========================================================================
-# Step 7: Verify — wait briefly for operator, then force-clear if stuck
+# Step 7: Remove Kuadrant console plugin
 # =========================================================================
-log_step 7 "Verifying cleanup"
+log_step 7 "Removing Kuadrant console plugin"
+CURRENT_PLUGINS=$(oc_m get consoles.operator.openshift.io cluster \
+    -o jsonpath='{.spec.plugins}' 2>/dev/null || echo "")
+if echo "$CURRENT_PLUGINS" | grep -q "kuadrant-console-plugin"; then
+    oc_m get consoles.operator.openshift.io cluster -o json 2>/dev/null \
+        | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+d['spec']['plugins']=[p for p in d['spec'].get('plugins',[]) if p!='kuadrant-console-plugin']
+print(json.dumps(d))
+" | oc_m replace -f - > /dev/null 2>&1 \
+        && log_info "Kuadrant console plugin removed" \
+        || log_warn "Could not remove kuadrant-console-plugin"
+else
+    log_info "Kuadrant console plugin not present — skipping"
+fi
+
+# =========================================================================
+# Step 8: Verify — wait briefly for operator, then force-clear if stuck
+# =========================================================================
+log_step 8 "Verifying cleanup"
 
 NS_EXISTS=$(oc_m get namespace "$TENANT_NS" --ignore-not-found -o name 2>/dev/null || echo "")
 GW_EXISTS=$(oc_m get gateway agents-maas-gateway -n openshift-ingress --ignore-not-found -o name 2>/dev/null || echo "")

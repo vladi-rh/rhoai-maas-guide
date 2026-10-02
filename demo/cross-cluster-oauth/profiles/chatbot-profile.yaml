@@ -2,4 +2,3 @@ pattern: conversational
 promptTemplate: "You are a helpful assistant. User asks: {random_question}"
 thinkTimeMinSec: 3
 thinkTimeMaxSec: 8
-burstSize: 1

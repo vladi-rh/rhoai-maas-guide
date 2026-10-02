@@ -191,16 +191,14 @@ fi
 # individual agent clients (chatbot-1, reviewer-1, etc.) can authenticate.
 log_detail "Patching AuthPolicy to allow per-agent Keycloak clients..."
 AUTH_POLICY="agents-maas-gateway-maas-auth"
-start_spinner "Waiting for AuthPolicy to be created..."
 for i in $(seq 60 -3 3); do
     if oc_m get authpolicy "$AUTH_POLICY" -n openshift-ingress &>/dev/null; then
-        stop_spinner
+        printf "\r\033[K"
         break
     fi
     countdown_tick "$i" 60 "Waiting for AuthPolicy"
     sleep 3
 done
-stop_spinner
 
 if oc_m get authpolicy "$AUTH_POLICY" -n openshift-ingress &>/dev/null; then
     # 1. Opt out of MaaS operator management

@@ -59,9 +59,6 @@ if [ -z "$KC_URL" ]; then
     exit 1
 fi
 KEYCLOAK_URL="$KC_URL"
-TOKEN_ENDPOINT="${KEYCLOAK_URL}/realms/agent-realm/protocol/openid-connect/token"
-ADMIN_TOKEN=$(keycloak_admin_token "$KEYCLOAK_URL" "$KC_NS" "$MAAS_CTX") \
-    || { log_error "$ADMIN_TOKEN"; exit 1; }
 
 pause() {
     echo ""
@@ -167,7 +164,7 @@ case "$AGAIN" in
     [yY]|[yY][eE][sS])
         echo ""
         exec "$0" --maas-context "$MAAS_CTX" --workload-context "$WORKLOAD_CTX" \
-            --skip-readiness ${FULL_MODE:+--full}
+            --skip-readiness $( [ "$FULL_MODE" = true ] && echo --full )
         ;;
 esac
 echo ""

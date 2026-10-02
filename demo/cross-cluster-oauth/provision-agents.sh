@@ -39,7 +39,8 @@ fi
 
 oc_w() { oc --context="$WORKLOAD_CTX" "$@"; }
 
-KEYCLOAK_TOKEN_ENDPOINT="${KEYCLOAK_URL}/realms/agent-realm/protocol/openid-connect/token"
+REALM_NAME="agent-realm"
+KEYCLOAK_TOKEN_ENDPOINT="${KEYCLOAK_URL}/realms/${REALM_NAME}/protocol/openid-connect/token"
 
 # Agent categories: group -> list of client names
 declare -A AGENT_GROUPS=(
@@ -66,9 +67,9 @@ get_client_secret() {
     local client_id="$1"
     local admin_token="$2"
     local client_uuid
-    client_uuid=$(curl -sSk "${KEYCLOAK_URL}/admin/realms/agent-realm/clients?clientId=${client_id}" \
+    client_uuid=$(curl -sSk "${KEYCLOAK_URL}/admin/realms/${REALM_NAME}/clients?clientId=${client_id}" \
         -H "Authorization: Bearer ${admin_token}" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
-    curl -sSk "${KEYCLOAK_URL}/admin/realms/agent-realm/clients/${client_uuid}/client-secret" \
+    curl -sSk "${KEYCLOAK_URL}/admin/realms/${REALM_NAME}/clients/${client_uuid}/client-secret" \
         -H "Authorization: Bearer ${admin_token}" | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])"
 }
 
@@ -205,7 +206,7 @@ EOF
 done
 
 # =============================================================================
-# Step 4: Wait for pods
+# Step 4: Wait for agent deployments to become ready
 # =============================================================================
 log_step 4 "Waiting for agent deployments to become ready"
 
@@ -217,7 +218,6 @@ deploy_ready() {
     [ "${ready:-0}" -ge 1 ]
 }
 
-ALL_READY=true
 for group in "${!AGENT_GROUPS[@]}"; do
     ns="${GROUP_NS[$group]}"
     for client_id in ${AGENT_GROUPS[$group]}; do
@@ -233,7 +233,6 @@ for group in "${!AGENT_GROUPS[@]}"; do
                 if [ "$i" -le 2 ]; then
                     printf "\r\033[K"
                     log_warn "${client_id} (${ns}): not Ready after 60s"
-                    ALL_READY=false
                     break
                 fi
                 countdown_tick "$i" 60 "Waiting for ${client_id}"
@@ -247,18 +246,16 @@ done
 # Summary
 # =============================================================================
 echo ""
-echo "========================================="
-echo "  Agent Pods Deployed"
-echo "========================================="
+echo -e "  ${BOLD}${CYAN}━━ Agent Deployments${NC}"
 for group in "${!AGENT_GROUPS[@]}"; do
     ns="${GROUP_NS[$group]}"
     echo "  ${group}:"
     for client_id in ${AGENT_GROUPS[$group]}; do
-        PHASE=$(oc_w get pod "$client_id" -n "$ns" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        PHASE=$(oc_w get pods -n "$ns" -l "agent-id=${client_id}" \
+            -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "Unknown")
         echo "    ${client_id}: ${PHASE}"
     done
 done
 echo ""
-echo "  All agents are waiting for the start signal."
-echo "  Run: ./start-agents.sh --workload-context ${WORKLOAD_CTX}"
-echo "========================================="
+echo "  To run guided demo:  ./run-demo.sh --maas-context ... --workload-context ${WORKLOAD_CTX}"
+echo "  To stop agents:      ./stop-agents.sh --workload-context ${WORKLOAD_CTX}"

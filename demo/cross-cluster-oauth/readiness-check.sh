@@ -47,6 +47,15 @@ echo -e "  ${DIM}${CYAN}──────────────────�
 echo ""
 echo -e "  ${BOLD}MaaS Cluster${NC} ${DIM}(${MAAS_CTX})${NC}"
 
+# AuthPolicy: managed=false annotation required to prevent operator from restoring oidc-client-bound
+MANAGED_ANNOTATION=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
+    -o jsonpath='{.metadata.annotations.opendatahub\.io/managed}' 2>/dev/null || echo "")
+if [ "$MANAGED_ANNOTATION" = "false" ]; then
+    check_pass "AuthPolicy: opendatahub.io/managed=false annotation present"
+else
+    check_fail "AuthPolicy: opendatahub.io/managed annotation missing or not 'false' — operator may restore oidc-client-bound and reset model_access"
+fi
+
 # AuthPolicy: oidc-client-bound must be removed for per-agent Keycloak clients to work
 OIDC_BOUND=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
     -o jsonpath='{.spec.defaults.rules.authorization.oidc-client-bound}' 2>/dev/null || echo "")
@@ -208,14 +217,14 @@ for s in json.load(sys.stdin):
                     -d "client_secret=${FIRST_SECRET}" 2>/dev/null)
                 ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || echo "")
                 if [ -n "$ACCESS_TOKEN" ]; then
-                    GROUPS=$(echo "$ACCESS_TOKEN" | cut -d. -f2 | python3 -c "
+                    TOKEN_GROUPS=$(echo "$ACCESS_TOKEN" | cut -d. -f2 | python3 -c "
 import sys, base64, json
 b = sys.stdin.read().strip()
 b += '=' * (4 - len(b) % 4)
 d = json.loads(base64.urlsafe_b64decode(b))
 print(','.join(d.get('groups',[])))
 " 2>/dev/null || echo "")
-                    check_pass "Token mint OK for $FIRST_CLIENT (groups: $GROUPS)"
+                    check_pass "Token mint OK for $FIRST_CLIENT (groups: $TOKEN_GROUPS)"
                 else
                     check_fail "Token mint failed for $FIRST_CLIENT"
                 fi

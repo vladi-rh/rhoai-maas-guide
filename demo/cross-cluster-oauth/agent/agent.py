@@ -297,7 +297,15 @@ def demo_once():
     prompt = profile.get("promptTemplate", "Hello, what can you help me with?")
     tm = TokenManager()
     keys = ApiKeyManager(tm)
-    api_key = keys.get_key()
+    for attempt in range(3):
+        try:
+            api_key = keys.get_key()
+            break
+        except urllib.error.HTTPError as e:
+            log(f"\U0001f3ab {status_str(e.code)} API key mint failed — retry {attempt + 1}/3")
+            if attempt == 2:
+                raise
+            time.sleep(3)
     status, elapsed, tok_count = call_inference(api_key, prompt, model)
     log(f"demo-once complete | status={status} elapsed={elapsed:.2f}s tokens={tok_count}")
 
