@@ -1,6 +1,6 @@
 # MaaS demos
 
-Six demos showing how Models as a Service governs access to a model: **who may
+Seven demos showing how Models as a Service governs access to a model: **who may
 call it**, and **how much they may consume**.
 
 Each demo runs against a cluster with MaaS deployed (`./scripts/setup-maas.sh`
@@ -17,6 +17,7 @@ runbook and a talk track, and a teardown script.
 | [service-account-access](service-account-access/) | An application calling a model with its own Kubernetes ServiceAccount token. No API key to distribute, no credential to rotate. Access granted per namespace, rate limits set per workload. |
 | [corporate-scenario](corporate-scenario/) | A realistic CIO assignment: three divisions (Sales, Engineering, Products) with differentiated access to on-prem and cloud models, each with appropriate token budgets. Full governance lifecycle from policy to verification. |
 | [jwks-cache](jwks-cache/) | That JWT signatures are genuinely verified, and that verification happens locally against a cached copy of the issuer's public keys rather than a call to the identity provider on every request. |
+| [cross-cluster-oauth](cross-cluster-oauth/) | AI agent workloads on a separate Workload cluster authenticating to MaaS via Keycloak's client-credentials flow. Dedicated AITenant, group-based subscriptions, per-agent overrides, coordinated agent start signal. |
 
 ## Readiness check
 

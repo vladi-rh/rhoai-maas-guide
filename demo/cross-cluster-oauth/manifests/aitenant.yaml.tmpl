@@ -1,0 +1,12 @@
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: AITenant
+metadata:
+  name: agents
+  namespace: ai-tenants
+spec:
+  gateway:
+    name: agents-maas-gateway
+  oidc:
+    clientId: ${OIDC_CLIENT_ID}
+    issuerUrl: ${KEYCLOAK_ISSUER}
+    ttl: 300

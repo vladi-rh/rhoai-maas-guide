@@ -1,0 +1,7 @@
+pattern: periodic
+promptTemplate: "Analyze this metric: {random_metric}"
+thinkTimeMinSec: 1
+thinkTimeMaxSec: 3
+burstSizeMin: 5
+burstSizeMax: 10
+pauseAfterBurstSec: 30

@@ -21,6 +21,7 @@ VALID_DEMOS="user-level-rate-limiting oidc-authentication jwks-cache service-acc
 if [ -n "$FILTER" ] && ! echo "$VALID_DEMOS" | grep -qw "$FILTER"; then
   echo "Unknown demo: '$FILTER'"
   echo "Valid values: $VALID_DEMOS"
+  echo "Note: cross-cluster-oauth spans two clusters — use demo/cross-cluster-oauth/readiness-check.sh instead."
   exit 1
 fi
 run_demo() { [ -z "$FILTER" ] || [ "$FILTER" = "$1" ]; }

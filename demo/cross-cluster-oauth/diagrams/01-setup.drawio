@@ -1,0 +1,275 @@
+<mxfile>
+  <diagram id="prep" name="Preparation">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Title -->
+        <mxCell id="t0" value="Cross-Cluster Agents Demo — Provisioning" style="text;html=1;fontSize=20;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="400" y="10" width="900" height="35" as="geometry"/>
+        </mxCell>
+
+        <!-- Workload Cluster -->
+        <mxCell id="wc" value="Workload Cluster" style="swimlane;startSize=35;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="10" y="55" width="590" height="950" as="geometry"/>
+        </mxCell>
+
+        <!-- MaaS Cluster -->
+        <mxCell id="mc" value="MaaS Cluster" style="swimlane;startSize=35;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="620" y="55" width="1060" height="950" as="geometry"/>
+        </mxCell>
+
+        <!-- WORKLOAD: agents-chatbots namespace -->
+        <mxCell id="wns1" value="namespace: agents-chatbots" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="wc">
+          <mxGeometry x="15" y="50" width="560" height="215" as="geometry"/>
+        </mxCell>
+        <mxCell id="wp1" value="chatbot-1&#xa;Deployment" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="wns1">
+          <mxGeometry x="10" y="35" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="wp2" value="chatbot-2&#xa;Deployment" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="wns1">
+          <mxGeometry x="130" y="35" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="ws1" value="Secret: chatbot-1-creds&#xa;client_id: chatbot-1&#xa;client_secret: ***&#xa;token_endpoint: .../agent-realm/..." style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="wns1">
+          <mxGeometry x="10" y="95" width="155" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="ws2" value="Secret: chatbot-2-creds&#xa;client_id: chatbot-2&#xa;client_secret: ***&#xa;token_endpoint: .../agent-realm/..." style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="wns1">
+          <mxGeometry x="175" y="95" width="155" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="wcm1" value="ConfigMap: start-signal&#xa;signal: wait → go" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="wns1">
+          <mxGeometry x="380" y="35" width="165" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="wcm1b" value="ConfigMap: agent-profile&#xa;pattern: conversational" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="wns1">
+          <mxGeometry x="380" y="95" width="165" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- WORKLOAD: agents-code-reviewers namespace -->
+        <mxCell id="wns2" value="namespace: agents-code-reviewers" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="wc">
+          <mxGeometry x="15" y="280" width="560" height="175" as="geometry"/>
+        </mxCell>
+        <mxCell id="wp3" value="reviewer-1&#xa;Deployment" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="wns2">
+          <mxGeometry x="10" y="35" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="wp4" value="reviewer-2&#xa;Deployment" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="wns2">
+          <mxGeometry x="130" y="35" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="ws3" value="Secret: reviewer-1-creds" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="wns2">
+          <mxGeometry x="10" y="95" width="155" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="ws4" value="Secret: reviewer-2-creds" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="wns2">
+          <mxGeometry x="175" y="95" width="155" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="wcm2" value="ConfigMap: start-signal&#xa;signal: wait → go" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="wns2">
+          <mxGeometry x="380" y="35" width="165" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="wcm2b" value="ConfigMap: agent-profile&#xa;pattern: burst" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="wns2">
+          <mxGeometry x="380" y="95" width="165" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- WORKLOAD: agents-business-analysts namespace -->
+        <mxCell id="wns3" value="namespace: agents-business-analysts" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="wc">
+          <mxGeometry x="15" y="470" width="560" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="wp5" value="analyst-1&#xa;Deployment" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="wns3">
+          <mxGeometry x="10" y="35" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="ws5" value="Secret: analyst-1-creds&#xa;client_id: analyst-1&#xa;client_secret: ***&#xa;token_endpoint: .../agent-realm/..." style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="wns3">
+          <mxGeometry x="10" y="95" width="155" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="wcm3" value="ConfigMap: start-signal&#xa;signal: wait → go" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="wns3">
+          <mxGeometry x="380" y="35" width="165" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="wcm3b" value="ConfigMap: agent-profile&#xa;pattern: periodic" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="wns3">
+          <mxGeometry x="380" y="95" width="165" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Provision scripts label in workload -->
+        <mxCell id="wprov" value="provision-agents.sh&#xa;1) Fetches client secrets from Keycloak Admin API&#xa;2) Creates K8s Secrets in each namespace" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=2;" vertex="1" parent="wc">
+          <mxGeometry x="50" y="660" width="490" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- MAAS: Keycloak -->
+        <mxCell id="kc" value="Keycloak  (namespace: keycloak)" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" vertex="1" parent="mc">
+          <mxGeometry x="20" y="50" width="700" height="370" as="geometry"/>
+        </mxCell>
+        <mxCell id="realm_lbl" value="realm: agent-realm" style="text;html=1;fontSize=13;fontStyle=1;align=center;" vertex="1" parent="kc">
+          <mxGeometry x="220" y="30" width="260" height="25" as="geometry"/>
+        </mxCell>
+
+        <!-- Groups -->
+        <mxCell id="kgrp" value="Groups" style="swimlane;startSize=22;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="kc">
+          <mxGeometry x="10" y="60" width="210" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="kg1" value="chatbots" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kgrp">
+          <mxGeometry x="10" y="28" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kg2" value="code-reviewers" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kgrp">
+          <mxGeometry x="110" y="28" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kg3" value="business-analysts" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kgrp">
+          <mxGeometry x="10" y="68" width="150" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- Confidential clients -->
+        <mxCell id="kclnt" value="Confidential Clients (grant_type=client_credentials)" style="swimlane;startSize=22;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="kc">
+          <mxGeometry x="230" y="60" width="460" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="kg1lbl" value="chatbots group:" style="text;html=1;fontSize=10;fontStyle=2;" vertex="1" parent="kclnt">
+          <mxGeometry x="10" y="28" width="220" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="kc1" value="chatbot-1" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kclnt">
+          <mxGeometry x="10" y="48" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kc2" value="chatbot-2" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kclnt">
+          <mxGeometry x="110" y="48" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kg2lbl" value="code-reviewers group:" style="text;html=1;fontSize=10;fontStyle=2;" vertex="1" parent="kclnt">
+          <mxGeometry x="10" y="88" width="220" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="kc3" value="reviewer-1" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kclnt">
+          <mxGeometry x="10" y="108" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kc4" value="reviewer-2" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kclnt">
+          <mxGeometry x="110" y="108" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kg3lbl" value="business-analysts group:" style="text;html=1;fontSize=10;fontStyle=2;" vertex="1" parent="kclnt">
+          <mxGeometry x="240" y="28" width="210" height="18" as="geometry"/>
+        </mxCell>
+        <mxCell id="kc5" value="analyst-1" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="kclnt">
+          <mxGeometry x="240" y="48" width="90" height="30" as="geometry"/>
+        </mxCell>
+        <mxCell id="kc6" value="maas-agents (public client)&#xa;audience mapper: adds maas-agents to aud" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="kclnt">
+          <mxGeometry x="10" y="155" width="430" height="35" as="geometry"/>
+        </mxCell>
+
+        <!-- Groups mapper note -->
+        <mxCell id="kgmap" value="Groups claim mapper on roles scope → groups claim in JWT token" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kc">
+          <mxGeometry x="10" y="270" width="680" height="35" as="geometry"/>
+        </mxCell>
+
+        <!-- AuthPolicy warning -->
+        <mxCell id="kauthw" value="⚠ oidc-client-bound AuthPolicy rule REMOVED (opendatahub.io/managed=false)&#xa;Per-agent Keycloak clients have different azp — MaaS design gap (see OPEN_TOPICS.md)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="kc">
+          <mxGeometry x="10" y="315" width="680" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- AITenant -->
+        <mxCell id="ait" value="AITenant: agents&#xa;(namespace: ai-tenants)&#xa;&#xa;spec.oidc.issuerUrl: .../realms/agent-realm&#xa;spec.oidc.clientId: maas-agents&#xa;spec.oidc.ttl: 300&#xa;spec.gateway.name: agents-maas-gateway" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="mc">
+          <mxGeometry x="740" y="50" width="300" height="130" as="geometry"/>
+        </mxCell>
+
+        <!-- agents-maas-gateway -->
+        <mxCell id="gw" value="agents-maas-gateway&#xa;(namespace: openshift-ingress)&#xa;GatewayClass: openshift-default&#xa;Dedicated ELB&#xa;DNS: agents-maas.apps.&lt;domain&gt;" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="mc">
+          <mxGeometry x="740" y="200" width="300" height="100" as="geometry"/>
+        </mxCell>
+
+        <!-- DNS -->
+        <mxCell id="dns" value="Kuadrant DNSPolicy&#xa;→ Route53 CNAME record&#xa;agents-maas.apps... → ELB hostname" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="mc">
+          <mxGeometry x="740" y="320" width="300" height="65" as="geometry"/>
+        </mxCell>
+
+        <!-- maas-api-agents -->
+        <mxCell id="mapi" value="maas-api-agents&#xa;(redhat-ai-gateway-infra)&#xa;Handles: /maas-api/* routes&#xa;API key minting, subscription lookup" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="mc">
+          <mxGeometry x="740" y="405" width="300" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- ai-tenant-agents namespace -->
+        <mxCell id="tns" value="namespace: ai-tenant-agents  (created by MaaS operator from AITenant)" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="mc">
+          <mxGeometry x="20" y="440" width="700" height="490" as="geometry"/>
+        </mxCell>
+
+        <!-- MaaSAuthPolicy -->
+        <mxCell id="mapol" value="MaaSAuthPolicy: agents-chatbots-access&#xa;Grants chatbots group access to simulator model" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="10" y="35" width="320" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="mapol2" value="MaaSAuthPolicy: agents-reviewers-access&#xa;Grants code-reviewers group access" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="10" y="95" width="320" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="mapol3" value="MaaSAuthPolicy: agents-analysts-access&#xa;Grants business-analysts group access" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="10" y="155" width="320" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- MaaSModelRef -->
+        <mxCell id="mref" value="MaaSModelRef: facebook-opt-125m-simulated&#xa;→ LLMInferenceService in llm namespace&#xa;(enables model discovery for agents tenant)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="340" y="35" width="350" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- MaaSSubscriptions -->
+        <mxCell id="msub1" value="MaaSSubscription&#xa;agents-chatbots-tier&#xa;owner.groups: chatbots&#xa;500 t/min | priority 35" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="10" y="225" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="msub2" value="MaaSSubscription&#xa;agents-reviewers-tier&#xa;owner.groups: code-reviewers&#xa;200 t/min | priority 35" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="180" y="225" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="msub3" value="MaaSSubscription&#xa;agents-analysts-tier&#xa;owner.groups: business-analysts&#xa;300 t/min | priority 35" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="350" y="225" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="msub4" value="MaaSSubscription&#xa;chatbot-2-premium&#xa;owner.users: service-account-chatbot-2&#xa;2000 t/min | priority 50 (overrides group)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="520" y="225" width="165" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Kuadrant AuthPolicy -->
+        <mxCell id="kap" value="Kuadrant AuthPolicy: agents-maas-gateway-maas-auth&#xa;• api-keys: validates sk-oai-* bearer tokens&#xa;• oidc-identities: validates JWT from agent-realm (issuer + aud=maas-agents)&#xa;• require-group-membership: checks groups claim vs model access list&#xa;• subscription-valid: checks active subscription for identity&#xa;• deny-client-identity-headers: blocks header spoofing" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="10" y="325" width="680" height="95" as="geometry"/>
+        </mxCell>
+
+        <!-- llm namespace -->
+        <mxCell id="llmns" value="namespace: llm" style="swimlane;startSize=20;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="tns">
+          <mxGeometry x="10" y="435" width="680" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="llmsvc" value="facebook-opt-125m-simulated-kserve-workload-svc (HTTPS :8000) | model ID: facebook/opt-125m" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="llmns">
+          <mxGeometry x="10" y="22" width="655" height="18" as="geometry"/>
+        </mxCell>
+
+        <!-- provision-infra.sh label on MaaS side -->
+        <mxCell id="mprov" value="provision-infra.sh&#xa;Creates: Gateway, AITenant, Keycloak realm + clients, MaaSAuthPolicy, MaaSSubscription" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=2;" vertex="1" parent="mc">
+          <mxGeometry x="740" y="510" width="300" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- EDGES -->
+
+        <!-- AITenant references gateway -->
+        <mxCell id="e1" value="creates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=9;dashed=1;" edge="1" source="ait" target="gw" parent="mc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Gateway DNS -->
+        <mxCell id="e2" value="auto-creates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=9;dashed=1;" edge="1" source="dns" target="gw" parent="mc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- AITenant references Keycloak issuer -->
+        <mxCell id="e3" value="issuerUrl references" style="edgeStyle=orthogonalEdgeStyle;rounded=1;fontSize=9;dashed=1;strokeColor=#b85450;" edge="1" source="ait" target="kc" parent="mc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="890" y="30"/>
+              <mxPoint x="370" y="30"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- provision-agents cross-cluster arrow -->
+        <mxCell id="e4" value="provision-agents.sh:&#xa;fetches client secrets&#xa;via Keycloak Admin API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;fontSize=10;fontStyle=2;strokeColor=#FF8000;strokeWidth=2;dashed=1;" edge="1" source="wprov" target="kc" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="295" y="760"/>
+              <mxPoint x="295" y="30"/>
+              <mxPoint x="980" y="30"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- provision-agents creates secrets -->
+        <mxCell id="e5" value="creates Secrets" style="edgeStyle=orthogonalEdgeStyle;rounded=1;fontSize=9;fontStyle=2;strokeColor=#FF8000;strokeWidth=2;dashed=1;" edge="1" source="wprov" target="ws1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="295" y="760"/>
+              <mxPoint x="165" y="760"/>
+              <mxPoint x="165" y="185"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
