@@ -63,6 +63,15 @@ declare -A GROUP_PROFILE=(
 )
 
 
+CONTROL_PORT=8080
+
+# Hash the agent script into the pod template so a code change triggers a rollout.
+# (A ConfigMap update alone does not restart pods.)
+file_hash() {
+    python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest()[:12])" "$1"
+}
+SCRIPT_HASH=$(file_hash "${DIR}/agent/agent.py")
+
 get_client_secret() {
     local client_id="$1"
     local admin_token="$2"
@@ -95,16 +104,17 @@ for group in "${!AGENT_GROUPS[@]}"; do
     oc_w label namespace "$ns" demo=cross-cluster-oauth --overwrite > /dev/null 2>&1 || true
 
 
-    # profile and script: create if not present, leave existing as-is
+    # Profile: create if not present, leave existing as-is (may be hand-tuned in-cluster)
     log_info "Creating behavior profile ConfigMap in $ns"
     oc_w get configmap agent-profile -n "$ns" &>/dev/null || \
         oc_w create configmap agent-profile -n "$ns" \
             --from-file=profile.yaml="${DIR}/profiles/${profile}"
 
-    log_info "Creating agent script ConfigMap in $ns"
-    oc_w get configmap agent-script -n "$ns" &>/dev/null || \
-        oc_w create configmap agent-script -n "$ns" \
-            --from-file=agent.py="${DIR}/agent/agent.py"
+    # Script: always re-apply — it is code, and the repo is the source of truth
+    log_info "Applying agent script ConfigMap in $ns"
+    oc_w create configmap agent-script -n "$ns" \
+        --from-file=agent.py="${DIR}/agent/agent.py" \
+        --dry-run=client -o yaml | oc_w apply -f - > /dev/null
 done
 
 # =============================================================================
@@ -145,6 +155,8 @@ spec:
       agent-id: ${client_id}
   template:
     metadata:
+      annotations:
+        agent-script-hash: "${SCRIPT_HASH}"
       labels:
         app: maas-agent
         demo: cross-cluster-oauth
@@ -156,7 +168,24 @@ spec:
         - name: agent
           image: registry.access.redhat.com/ubi9/python-39:latest
           command: ["python3", "/opt/agent/agent.py"]
+          ports:
+            - name: control
+              containerPort: ${CONTROL_PORT}
+          readinessProbe:
+            httpGet: { path: /healthz, port: control }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: control }
+            initialDelaySeconds: 10
+            periodSeconds: 20
           env:
+            - name: AGENT_GROUP
+              value: "${group}"
+            - name: CONTROL_PORT
+              value: "${CONTROL_PORT}"
+            - name: AUTOSTART
+              value: "false"
             - name: CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -201,6 +230,23 @@ spec:
         - name: agent-profile
           configMap:
             name: agent-profile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${client_id}
+  namespace: ${ns}
+  labels:
+    app: maas-agent
+    demo: cross-cluster-oauth
+    agent-id: ${client_id}
+spec:
+  selector:
+    agent-id: ${client_id}
+  ports:
+    - name: control
+      port: ${CONTROL_PORT}
+      targetPort: control
 EOF
     done
 done
@@ -257,5 +303,10 @@ for group in "${!AGENT_GROUPS[@]}"; do
     done
 done
 echo ""
+log_detail "Agents boot idle — they send no traffic until started."
+echo ""
+echo "  Next:  ./provision-console.sh --workload-context ${WORKLOAD_CTX}"
+echo ""
 echo "  To run guided demo:  ./run-demo.sh --maas-context ... --workload-context ${WORKLOAD_CTX}"
+echo "  To start agents:     ./start-agents.sh --workload-context ${WORKLOAD_CTX}"
 echo "  To stop agents:      ./stop-agents.sh --workload-context ${WORKLOAD_CTX}"

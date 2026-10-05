@@ -88,14 +88,7 @@ echo ""
 
 pause
 
-# Map agent id -> namespace
-agent_ns() {
-    case "$1" in
-        chatbot-*)  echo "agents-chatbots" ;;
-        reviewer-*) echo "agents-code-reviewers" ;;
-        analyst-*)  echo "agents-business-analysts" ;;
-    esac
-}
+# agent_ns() comes from shared.sh
 
 # =========================================================================
 # Per-agent walkthrough — executed inside the actual agent pod
@@ -150,8 +143,15 @@ echo -e "  ${DIM}${CYAN}──────────────────�
 echo -e "  ${BOLD}${CYAN}Demo Complete${NC}"
 echo -e "  ${DIM}${CYAN}─────────────────────────────────────────────${NC}"
 echo ""
-echo "  To start autonomous agent traffic:"
-echo "    ./start-agents.sh --workload-context ${WORKLOAD_CTX}"
+CONSOLE_URL=$(console_url "$WORKLOAD_CTX")
+if [ -n "$CONSOLE_URL" ]; then
+    echo "  Agent console (start/stop toggles + live counters):"
+    echo -e "    ${BOLD}${D_PINK}${CONSOLE_URL}${NC}"
+    echo ""
+fi
+echo "  To start autonomous agent traffic from the CLI:"
+echo "    ./start-agents.sh  --workload-context ${WORKLOAD_CTX}"
+echo "    ./follow-agents.sh --workload-context ${WORKLOAD_CTX}"
 echo ""
 echo "  To clean up:"
 echo "    ./teardown-agents.sh --workload-context ${WORKLOAD_CTX}"

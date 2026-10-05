@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# Start agent deployments and tail color-coded logs.
-# Usage: ./start-agents.sh --workload-context <ctx> [--cycles N]
-#   --cycles N  each agent repeats its profile pattern N times (default: 0 = run forever)
+# Start agent traffic via the agent console API.
+#
+# The pods are always running and idle; this flips their start signal, so all
+# agents begin at the same moment with no pod restart and no token re-mint.
+#
+# Usage: ./start-agents.sh --workload-context <ctx> [--cycles N] [--agent <id>]... [--reset]
+#   --cycles N  each agent repeats its profile pattern N times (default: 0 = until stopped)
+#   --agent ID  start only this agent (repeatable; default: all)
+#   --reset     zero the counters before starting
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,11 +16,15 @@ source "${DIR}/shared.sh"
 
 WORKLOAD_CTX=""
 CYCLES=0
+RESET=false
+SELECTED=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --workload-context) WORKLOAD_CTX="$2"; shift 2 ;;
         --cycles)           CYCLES="$2";       shift 2 ;;
+        --agent)            SELECTED="${SELECTED} $2"; shift 2 ;;
+        --reset)            RESET=true;        shift ;;
         -h|--help)
             sed -n '2,/^$/p' "$0" | sed 's/^# *//'
             exit 0
@@ -27,98 +37,35 @@ if [ -z "$WORKLOAD_CTX" ]; then
     log_error "Required: --workload-context"
     exit 1
 fi
+case "$CYCLES" in
+    ''|*[!0-9]*) log_error "--cycles must be a non-negative integer"; exit 1 ;;
+esac
 
-oc_w() { oc --context="$WORKLOAD_CTX" "$@"; }
-
-NAMESPACES=(agents-chatbots agents-code-reviewers agents-business-analysts)
+CONSOLE_URL=$(require_console "$WORKLOAD_CTX") || exit 1
+BODY="{\"cycles\": ${CYCLES}, \"reset\": ${RESET}}"
 
 echo ""
 echo -e "  ${BOLD}${CYAN}━━ Starting agents${NC}"
 if [ "$CYCLES" -gt 0 ]; then
-    log_info "Each agent will run ${BOLD}${CYCLES}${NC} cycle(s) then stop"
+    log_info "Each agent will run ${BOLD}${CYCLES}${NC} cycle(s) then idle"
 else
     log_info "Agents will run until stopped (no cycle limit)"
 fi
-
-for ns in "${NAMESPACES[@]}"; do
-    oc_w set env deployment -l demo=cross-cluster-oauth -n "$ns" "MAX_CYCLES=${CYCLES}" > /dev/null
-    oc_w scale deployment -l demo=cross-cluster-oauth -n "$ns" --replicas=1 > /dev/null
-    log_info "Started: $ns"
-done
-
+log_detail "Console: ${CONSOLE_URL}"
 echo ""
 
-# Dracula colors per agent type
-C_CHATBOT="$D_CYAN"
-C_REVIEWER="$D_GREEN"
-C_ANALYST="$D_PURPLE"
-
-declare -A AGENT_COLOR=(
-    [chatbot-1]="$C_CHATBOT"
-    [chatbot-2]="$C_CHATBOT"
-    [reviewer-1]="$C_REVIEWER"
-    [reviewer-2]="$C_REVIEWER"
-    [analyst-1]="$C_ANALYST"
-)
-declare -A AGENT_NS=(
-    [chatbot-1]=agents-chatbots
-    [chatbot-2]=agents-chatbots
-    [reviewer-1]=agents-code-reviewers
-    [reviewer-2]=agents-code-reviewers
-    [analyst-1]=agents-business-analysts
-)
-
-echo -e "  ${BOLD}Tailing agent logs (Ctrl-C to stop watching):${NC}"
-echo -e "  ${C_CHATBOT}■${NC} chatbots   ${C_REVIEWER}■${NC} code-reviewers   ${C_ANALYST}■${NC} business-analysts"
-echo ""
-
-# Wait for all agent pods to be Running before attaching log tails
-start_spinner "Waiting for agent pods to start..."
-for agent_id in chatbot-1 chatbot-2 reviewer-1 reviewer-2 analyst-1; do
-    ns="${AGENT_NS[$agent_id]}"
-    for i in $(seq 1 30); do
-        PHASE=$(oc_w get pods -n "$ns" -l "agent-id=${agent_id}" \
-            -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-        [ "$PHASE" = "Running" ] && break
-        sleep 2
+if [ -n "$SELECTED" ]; then
+    for agent_id in $SELECTED; do
+        console_api "$CONSOLE_URL" "/api/agents/${agent_id}/start" POST "$BODY" > /dev/null
+        log_info "Started: ${agent_id}"
     done
-done
-stop_spinner
+    console_api "$CONSOLE_URL" "/api/status" | render_agent_status
+else
+    console_api "$CONSOLE_URL" "/api/start" POST "$BODY" | render_agent_status
+fi
+
 echo ""
-
-DONE_DIR=$(mktemp -d)
-TOTAL_AGENTS=5
-trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$DONE_DIR"; echo ""; log_info "Log tailing stopped."' INT TERM EXIT
-
-for agent_id in chatbot-1 chatbot-2 reviewer-1 reviewer-2 analyst-1; do
-    ns="${AGENT_NS[$agent_id]}"
-    color="${AGENT_COLOR[$agent_id]}"
-    (
-        oc_w logs -f deployment/"$agent_id" -n "$ns" 2>/dev/null | while IFS= read -r line; do
-            printf "${color}[%-10s]${NC} %s\n" "$agent_id" "$line"
-            # Mark this agent as done when it logs the idle message
-            if echo "$line" | grep -q "done — idling"; then
-                touch "$DONE_DIR/$agent_id"
-            fi
-        done
-    ) &
-done
-
-# Monitor for all agents done — check every 3s
-while true; do
-    sleep 3
-    DONE_COUNT=$(ls "$DONE_DIR" 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$DONE_COUNT" -ge "$TOTAL_AGENTS" ]; then
-        kill $(jobs -p) 2>/dev/null || true
-        echo ""
-        printf "  ${D_PINK}All agents completed their cycles.${NC} Stop agents? [y/N]: "
-        read -r ANS
-        case "$ANS" in
-            [yY]|[yY][eE][sS])
-                echo ""
-                "${DIR}/stop-agents.sh" --workload-context "$WORKLOAD_CTX"
-                ;;
-        esac
-        break
-    fi
-done
+echo "  Watch live:    ${CONSOLE_URL}"
+echo "  Tail logs:     ./follow-agents.sh --workload-context ${WORKLOAD_CTX}"
+echo "  Stop:          ./stop-agents.sh --workload-context ${WORKLOAD_CTX}"
+echo ""

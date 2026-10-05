@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MaaS Agent Console</title>
+<style>
+/* Dracula palette — same values as shared.sh's D_* codes, so the UI and the
+   colour-coded log tail in follow-agents.sh read as one thing. */
+:root {
+  --bg:        #282A36;
+  --panel:     #21222C;
+  --line:      #44475A;
+  --fg:        #F8F8F2;
+  --comment:   #6272A4;
+  --cyan:      #8BE9FD;
+  --green:     #50FA7B;
+  --orange:    #FFB86C;
+  --pink:      #FF79C6;
+  --purple:    #BD93F9;
+  --red:       #FF5555;
+  --yellow:    #F1FA8C;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px 28px 48px;
+  background: var(--bg); color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px; line-height: 1.5;
+}
+a { color: var(--cyan); }
+
+header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+h1 { font-size: 18px; margin: 0; font-weight: 700; letter-spacing: .5px; }
+h1 .accent { color: var(--pink); }
+.sub { color: var(--comment); font-size: 12px; }
+#poll { margin-left: auto; color: var(--comment); font-size: 12px; }
+#poll.stale { color: var(--red); }
+
+/* ── Global controls ──────────────────────────────────────────────────── */
+.toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 18px 0 14px; padding: 12px 14px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+}
+button {
+  font: inherit; font-size: 13px; cursor: pointer;
+  padding: 7px 14px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--line); color: var(--fg);
+  transition: filter .12s ease;
+}
+button:hover:not(:disabled) { filter: brightness(1.25); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--green); border-color: var(--green); color: #1d2b20; font-weight: 700; }
+button.danger  { background: var(--red);   border-color: var(--red);   color: #2b1d1d; font-weight: 700; }
+label.cycles { color: var(--comment); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+label.cycles input {
+  font: inherit; width: 64px; padding: 5px 8px; text-align: right;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 5px;
+}
+.spacer { flex: 1; }
+
+/* ── Aggregate strip ──────────────────────────────────────────────────── */
+.totals { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; }
+.tot { display: flex; flex-direction: column; }
+.tot .k { color: var(--comment); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+.tot .v { font-size: 20px; font-weight: 700; }
+
+/* ── Agent cards ──────────────────────────────────────────────────────── */
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 4px solid var(--accent, var(--comment));
+  border-radius: 8px; padding: 14px 16px;
+}
+.card.unreachable { opacity: .55; }
+.card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 2px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
+.name { font-weight: 700; font-size: 15px; }
+.badge {
+  font-size: 10px; letter-spacing: .7px; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 10px; border: 1px solid currentColor;
+}
+.badge.running     { color: var(--green); }
+.badge.starting    { color: var(--cyan); }
+.badge.stopping    { color: var(--orange); }
+.badge.idle        { color: var(--comment); }
+.badge.completed   { color: var(--yellow); }
+.badge.unreachable,
+.badge.error       { color: var(--red); }
+.meta { color: var(--comment); font-size: 11px; margin-bottom: 11px; }
+
+/* Toggle switch */
+.toggle { margin-left: auto; position: relative; width: 44px; height: 24px; flex: none; }
+.toggle input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; inset: 0; cursor: pointer; border-radius: 24px;
+  background: var(--line); transition: background .15s ease;
+}
+.slider::before {
+  content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px;
+  border-radius: 50%; background: var(--fg); transition: transform .15s ease;
+}
+.toggle input:checked + .slider { background: var(--green); }
+.toggle input:checked + .slider::before { transform: translateX(20px); }
+.toggle input:disabled + .slider { cursor: not-allowed; opacity: .4; }
+
+/* Stats */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px 6px; margin-bottom: 11px; }
+.stat .k { color: var(--comment); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; }
+.stat .v { font-size: 15px; font-weight: 600; }
+.v.ok  { color: var(--green); }
+.v.c4  { color: var(--orange); }
+.v.c5  { color: var(--red); }
+
+/* 2xx vs 4xx/5xx ratio bar */
+.bar { height: 7px; border-radius: 4px; background: var(--line); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+.bar .s2 { background: var(--green); }
+.bar .s4 { background: var(--orange); }
+.bar .s5 { background: var(--red); }
+.barlbl { display: flex; justify-content: space-between; color: var(--comment); font-size: 11px; margin-top: 5px; }
+
+.foot { margin-top: 22px; color: var(--comment); font-size: 11px; }
+.err { color: var(--red); font-size: 11px; margin-top: 8px; word-break: break-all; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MaaS <span class="accent">Agent Console</span></h1>
+  <span class="sub">cross-cluster-oauth demo</span>
+  <span id="poll">connecting…</span>
+</header>
+
+<div class="toolbar">
+  <button id="startAll" class="primary">▶ Start all</button>
+  <button id="stopAll" class="danger">■ Stop all</button>
+  <button id="resetAll">↺ Reset counters</button>
+  <label class="cycles">cycles
+    <input id="cycles" type="number" min="0" step="1" value="0" title="0 = run until stopped">
+  </label>
+  <div class="spacer"></div>
+  <div class="totals" id="totals"></div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<p class="foot">
+  Polling <code>/api/status</code> every 2s. Counters are in-memory per pod and
+  reset if a pod restarts — watch <em>uptime</em> if a number drops unexpectedly.
+</p>
+
+<script>
+const POLL_MS = 2000;
+let busy = new Set();     // agent ids with an in-flight start/stop
+let lastOk = 0;
+
+const fmtNum = n => (n ?? 0).toLocaleString();
+
+function fmtDur(s) {
+  if (s == null) return "—";
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h) return `${h}h${String(m).padStart(2, "0")}m`;
+  if (m) return `${m}m${String(sec).padStart(2, "0")}s`;
+  return `${sec}s`;
+}
+
+function ratioText(r) {
+  return r == null ? "—" : `${(r * 100).toFixed(1)}%`;
+}
+
+async function api(path, method = "GET", body) {
+  const res = await fetch(path, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+  return res.json();
+}
+
+function cyclesValue() {
+  const v = parseInt(document.getElementById("cycles").value, 10);
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+function renderTotals(t) {
+  document.getElementById("totals").innerHTML = `
+    <div class="tot"><span class="k">Agents running</span>
+      <span class="v" style="color:${t.agents_running ? "var(--green)" : "var(--comment)"}">
+        ${t.agents_running}/${t.agents_total}</span></div>
+    <div class="tot"><span class="k">Requests</span><span class="v">${fmtNum(t.requests)}</span></div>
+    <div class="tot"><span class="k">Tokens</span><span class="v">${fmtNum(t.tokens)}</span></div>
+    <div class="tot"><span class="k">2xx</span><span class="v ok">${fmtNum(t.ok)}</span></div>
+    <div class="tot"><span class="k">4xx/5xx</span>
+      <span class="v ${t.errors ? "c5" : ""}">${fmtNum(t.errors)}</span></div>
+    <div class="tot"><span class="k">Success</span>
+      <span class="v" style="color:${t.success_ratio == null ? "var(--comment)"
+        : t.success_ratio > 0.95 ? "var(--green)"
+        : t.success_ratio > 0.5 ? "var(--orange)" : "var(--red)"}">
+      ${ratioText(t.success_ratio)}</span></div>`;
+}
+
+function cardHTML(a) {
+  const total = (a.ok || 0) + (a.client_err || 0) + (a.server_err || 0) + (a.net_err || 0);
+  const pct = n => total ? (100 * n / total) : 0;
+  const state = a.reachable ? (a.state || "idle") : "unreachable";
+  const checked = a.running ? "checked" : "";
+  const disabled = (!a.reachable || busy.has(a.agent_id)) ? "disabled" : "";
+
+  return `
+  <div class="card ${a.reachable ? "" : "unreachable"}" style="--accent:${a.color}">
+    <div class="card-head">
+      <span class="dot"></span>
+      <span class="name">${a.agent_id}</span>
+      <span class="badge ${state}">${state}</span>
+      <label class="toggle">
+        <input type="checkbox" data-agent="${a.agent_id}" ${checked} ${disabled}>
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="meta">${a.group} · ${a.namespace} · ${a.pattern || "—"}
+      · cycles ${a.cycles_limit ? a.cycles_limit : "∞"}</div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">Requests</div><div class="v">${fmtNum(a.requests)}</div></div>
+      <div class="stat"><div class="k">Tokens</div><div class="v">${fmtNum(a.tokens)}</div></div>
+      <div class="stat"><div class="k">Uptime</div><div class="v">${fmtDur(a.uptime_seconds)}</div></div>
+      <div class="stat"><div class="k">Working</div><div class="v">${fmtDur(a.run_seconds)}</div></div>
+      <div class="stat"><div class="k">2xx</div><div class="v ok">${fmtNum(a.ok)}</div></div>
+      <div class="stat"><div class="k">4xx</div><div class="v ${a.client_err ? "c4" : ""}">${fmtNum(a.client_err)}</div></div>
+      <div class="stat"><div class="k">5xx</div><div class="v ${a.server_err ? "c5" : ""}">${fmtNum(a.server_err)}</div></div>
+      <div class="stat"><div class="k">Last</div>
+        <div class="v" style="color:${a.last_status == null ? "var(--comment)"
+          : a.last_status >= 200 && a.last_status < 300 ? "var(--green)" : "var(--red)"}">
+          ${a.last_status ?? "—"}</div></div>
+    </div>
+
+    <div class="bar">
+      <i class="s2" style="width:${pct(a.ok)}%"></i>
+      <i class="s4" style="width:${pct(a.client_err)}%"></i>
+      <i class="s5" style="width:${pct((a.server_err || 0) + (a.net_err || 0))}%"></i>
+    </div>
+    <div class="barlbl">
+      <span>success ${ratioText(a.success_ratio)}</span>
+      <span>${a.last_latency_ms != null ? a.last_latency_ms + "ms" : ""}</span>
+    </div>
+    ${a.error ? `<div class="err">${a.error}</div>` : ""}
+  </div>`;
+}
+
+function render(data) {
+  renderTotals(data.totals);
+  document.getElementById("grid").innerHTML = data.agents.map(cardHTML).join("");
+  for (const el of document.querySelectorAll(".toggle input")) {
+    el.addEventListener("change", onToggle);
+  }
+}
+
+async function onToggle(ev) {
+  const id = ev.target.dataset.agent;
+  const action = ev.target.checked ? "start" : "stop";
+  busy.add(id);
+  ev.target.disabled = true;
+  try {
+    await api(`/api/agents/${id}/${action}`, "POST",
+              action === "start" ? { cycles: cyclesValue() } : {});
+  } catch (e) {
+    console.error(e);
+  } finally {
+    busy.delete(id);
+    refresh();
+  }
+}
+
+async function broadcast(action, body) {
+  for (const b of document.querySelectorAll("button")) b.disabled = true;
+  try {
+    render(await api(`/api/${action}`, "POST", body || {}));
+  } catch (e) {
+    console.error(e);
+  } finally {
+    for (const b of document.querySelectorAll("button")) b.disabled = false;
+    refresh();
+  }
+}
+
+document.getElementById("startAll").onclick = () => broadcast("start", { cycles: cyclesValue() });
+document.getElementById("stopAll").onclick  = () => broadcast("stop");
+document.getElementById("resetAll").onclick = () => broadcast("reset");
+
+async function refresh() {
+  const poll = document.getElementById("poll");
+  try {
+    render(await api("/api/status"));
+    lastOk = Date.now();
+    poll.textContent = `updated ${new Date().toLocaleTimeString()}`;
+    poll.classList.remove("stale");
+  } catch (e) {
+    poll.textContent = `console unreachable (last update ${
+      lastOk ? Math.round((Date.now() - lastOk) / 1000) + "s ago" : "never"})`;
+    poll.classList.add("stale");
+  }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>

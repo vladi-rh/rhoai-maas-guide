@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Delete all agent namespaces from the Workload cluster.
+# Delete all agent namespaces (and the agent console) from the Workload cluster.
 set -euo pipefail
 
 # shellcheck source=shared.sh
@@ -25,12 +25,10 @@ fi
 
 oc_w() { oc --context="$WORKLOAD_CTX" "$@"; }
 
-NAMESPACES=(agents-chatbots agents-code-reviewers agents-business-analysts)
-
 echo ""
 echo -e "  ${BOLD}${CYAN}━━ Deleting agent namespaces from Workload cluster${NC}"
 
-for ns in "${NAMESPACES[@]}"; do
+for ns in $AGENT_NAMESPACES "$CONSOLE_NS"; do
     if oc_w get project "$ns" &>/dev/null 2>&1; then
         start_spinner "Deleting project: $ns"
         oc_w delete project "$ns" > /dev/null 2>&1 || \

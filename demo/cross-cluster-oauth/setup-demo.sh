@@ -295,10 +295,18 @@ esac
     --keycloak-ns "$KEYCLOAK_NS"
 
 # =========================================================================
-# Phase 3: Readiness check
+# Phase 3: Agent console
 # =========================================================================
 echo ""
-echo -e "  ${BOLD}${CYAN}━━ Phase 3${NC} ${BOLD}Running readiness check${NC}"
+echo -e "  ${BOLD}${CYAN}━━ Phase 3${NC} ${BOLD}Deploying agent console${NC}"
+
+"${DIR}/provision-console.sh" --workload-context "$WORKLOAD_CTX"
+
+# =========================================================================
+# Phase 4: Readiness check
+# =========================================================================
+echo ""
+echo -e "  ${BOLD}${CYAN}━━ Phase 4${NC} ${BOLD}Running readiness check${NC}"
 echo ""
 
 "${DIR}/readiness-check.sh" --maas-context "$MAAS_CTX" --workload-context "$WORKLOAD_CTX"
@@ -311,12 +319,20 @@ echo -e "  ${DIM}${CYAN}──────────────────�
 echo -e "  ${BOLD}${CYAN}Setup Complete${NC}"
 echo -e "  ${DIM}${CYAN}─────────────────────────────────────────────${NC}"
 echo ""
+CONSOLE_URL=$(console_url "$WORKLOAD_CTX")
+
 echo -e "  ${BOLD}Next steps:${NC}"
 echo -e "    ${GREEN}1.${NC} Run the demo walkthrough:"
 echo -e "       ./run-demo.sh --maas-context ${MAAS_CTX} --workload-context ${WORKLOAD_CTX}"
 echo ""
 echo -e "    ${GREEN}2.${NC} Start autonomous agent traffic:"
-echo -e "       ./start-agents.sh --workload-context ${WORKLOAD_CTX}"
+if [ -n "$CONSOLE_URL" ]; then
+    echo -e "       Agent console: ${BOLD}${D_PINK}${CONSOLE_URL}${NC}"
+    echo -e "       ${DIM}or${NC} ./start-agents.sh --workload-context ${WORKLOAD_CTX}"
+else
+    echo -e "       ./start-agents.sh --workload-context ${WORKLOAD_CTX}"
+fi
+echo -e "       ${DIM}tail logs:${NC} ./follow-agents.sh --workload-context ${WORKLOAD_CTX}"
 echo ""
 echo -e "    ${GREEN}3.${NC} Clean up:"
 echo -e "       ./teardown-agents.sh --workload-context ${WORKLOAD_CTX}"

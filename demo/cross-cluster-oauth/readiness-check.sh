@@ -13,6 +13,11 @@ check_pass() { echo -e "    ${GREEN}✓${NC} $*"; PASS=$((PASS + 1)); }
 check_fail() { echo -e "    ${RED}✗${NC} $*"; FAIL=$((FAIL + 1)); }
 check_warn() { echo -e "    ${YELLOW}⚠${NC} $*"; WARN=$((WARN + 1)); }
 
+# Defines check_gateway_wasm. Must come after check_pass/check_fail/check_warn so the
+# helper reuses these counting versions instead of its own standalone fallbacks.
+# shellcheck source=check-gateway-wasm.sh
+source "$(dirname "${BASH_SOURCE[0]}")/check-gateway-wasm.sh"
+
 MAAS_CTX=""
 WORKLOAD_CTX=""
 
@@ -260,11 +265,70 @@ for i in "${!NAMESPACES[@]}"; do
             else
                 check_fail "  Deployment $dep: not found"
             fi
+            # The console reaches each agent's control API through this Service
+            if oc_w get service "$dep" -n "$ns" &>/dev/null; then
+                check_pass "  Service $dep: exists"
+            else
+                check_fail "  Service $dep: not found — console cannot reach this agent"
+            fi
         done
     else
         check_fail "Namespace $ns not found"
     fi
 done
+
+# =========================================================================
+# Gateway liveness
+# =========================================================================
+# Every resource status stays green when the Envoy wasm shim fails to load, so this is a
+# live HTTP probe. check_gateway_wasm is sourced above and uses this script's own
+# check_pass/check_fail, so its results count toward the summary.
+echo ""
+echo -e "  ${BOLD}Gateway Liveness${NC}"
+check_gateway_wasm "$MAAS_CTX" "agents-maas-gateway" || true
+
+# =========================================================================
+# Agent console
+# =========================================================================
+echo ""
+echo -e "  ${BOLD}Agent Console${NC}"
+
+if ! oc_w get namespace "$CONSOLE_NS" &>/dev/null; then
+    check_fail "Namespace $CONSOLE_NS not found — run ./provision-console.sh"
+else
+    CONSOLE_READY=$(oc_w get deployment agent-console -n "$CONSOLE_NS" \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "")
+    if [ "${CONSOLE_READY:-0}" -ge 1 ]; then
+        check_pass "Deployment agent-console: Ready"
+    else
+        check_fail "Deployment agent-console: not Ready — oc logs -n ${CONSOLE_NS} deploy/agent-console"
+    fi
+
+    CONSOLE_URL=$(console_url "$WORKLOAD_CTX")
+    if [ -z "$CONSOLE_URL" ]; then
+        check_fail "Route agent-console not found"
+    else
+        check_pass "Route: ${CONSOLE_URL}"
+        # End-to-end: the console must be able to reach every agent it proxies
+        REACH=$(curl -sSk --max-time 15 "${CONSOLE_URL}/api/status" 2>/dev/null | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('0 0 parse-error'); raise SystemExit
+t = d.get('totals', {})
+bad = ','.join(a['agent_id'] for a in d.get('agents', []) if not a.get('reachable'))
+print(t.get('agents_reachable', 0), t.get('agents_total', 0), bad or '-')
+" 2>/dev/null || echo "0 0 unreachable")
+        R_OK="${REACH%% *}"; R_REST="${REACH#* }"
+        R_TOTAL="${R_REST%% *}"; R_BAD="${R_REST#* }"
+        if [ "${R_TOTAL:-0}" -gt 0 ] && [ "${R_OK:-0}" -eq "${R_TOTAL}" ]; then
+            check_pass "Console reaches all ${R_TOTAL} agents"
+        else
+            check_fail "Console reaches ${R_OK:-0}/${R_TOTAL:-0} agents (unreachable: ${R_BAD})"
+        fi
+    fi
+fi
 
 # =========================================================================
 # Summary
