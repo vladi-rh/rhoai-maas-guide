@@ -34,14 +34,30 @@ header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margi
 h1 { font-size: 18px; margin: 0; font-weight: 700; letter-spacing: .5px; }
 h1 .accent { color: var(--pink); }
 .sub { color: var(--comment); font-size: 12px; }
-#poll { margin-left: auto; color: var(--comment); font-size: 12px; }
+/* No margin-left:auto here — it pinned #poll right while it lived in the header's flex
+   row, and inside the toolbar's centre column it would push the text off-centre. */
+#poll { color: var(--comment); font-size: 12px; }
 #poll.stale { color: var(--red); }
 
 /* ── Global controls ──────────────────────────────────────────────────── */
+/* 1fr / auto / 1fr so the stats are centred against the toolbar itself, not against
+   whatever the left-hand buttons happen to measure. Reset lives at the far right,
+   deliberately out of mis-click range of Stop all. */
 .toolbar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  align-items: center; gap: 12px;
   margin: 18px 0 14px; padding: 12px 14px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+}
+.tb-left  { display: flex; gap: 10px; align-items: center; }
+/* Centre cell stacks the stats with the freshness timestamp that qualifies them. */
+.tb-center { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tb-right { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+/* Below ~1100px the three groups no longer fit on one line; stack them left-aligned
+   rather than letting the centre column get crushed. */
+@media (max-width: 1100px) {
+  .toolbar { grid-template-columns: 1fr; }
+  .tb-right { justify-content: flex-start; }
 }
 button {
   font: inherit; font-size: 13px; cursor: pointer;
@@ -54,7 +70,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { background: var(--green); border-color: var(--green); color: #1d2b20; font-weight: 700; }
 button.danger  { background: var(--red);   border-color: var(--red);   color: #2b1d1d; font-weight: 700; }
 .runhint { color: var(--comment); font-size: 11px; font-style: italic; }
-.spacer { flex: 1; }
 
 /* ── Aggregate strip ──────────────────────────────────────────────────── */
 .totals { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; }
@@ -191,16 +206,22 @@ button.danger  { background: var(--red);   border-color: var(--red);   color: #2
 <header>
   <h1>MaaS <span class="accent">Agent Console</span></h1>
   <span class="sub">cross-cluster-oauth demo</span>
-  <span id="poll">connecting…</span>
 </header>
 
 <div class="toolbar">
-  <button id="startAll" class="primary">▶ Start all</button>
-  <button id="stopAll" class="danger">■ Stop all</button>
-  <button id="resetAll">↺ Reset counters</button>
-  <span class="runhint">agents repeat their profile pattern until stopped</span>
-  <div class="spacer"></div>
-  <div class="totals" id="totals"></div>
+  <div class="tb-left">
+    <button id="startAll" class="primary"
+            title="Start every agent. Each repeats its profile pattern until stopped.">▶ Start all</button>
+    <button id="stopAll" class="danger"
+            title="Stop every agent. Pods stay up and counters are kept.">■ Stop all</button>
+  </div>
+  <div class="tb-center">
+    <div class="totals" id="totals"></div>
+    <span id="poll">connecting…</span>
+  </div>
+  <div class="tb-right">
+    <button id="resetAll" title="Zero every agent's counters. Does not stop traffic.">↺ Reset counters</button>
+  </div>
 </div>
 
 <div class="tabs">
