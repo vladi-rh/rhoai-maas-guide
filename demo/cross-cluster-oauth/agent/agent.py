@@ -6,14 +6,17 @@ plane on CONTROL_PORT lets the agent console start/stop traffic and read counter
 without a pod restart (which would re-mint the JWT and API key, and lose counters):
 
     GET  /status   -> JSON state + counters
-    POST /start    -> body {"cycles": N, "reset": bool} (both optional)
+    POST /start    -> body {"reset": bool} (optional); runs until /stop
     POST /stop
     POST /reset    -> zero the counters
+    GET  /logs     -> {"lines": [...], "seq": n}; ?since=<seq> for the tail only
     GET  /healthz
 """
 
+import collections
 import json
 import os
+import re
 import random
 import signal
 import ssl
@@ -36,7 +39,6 @@ MODEL_NAME = os.environ.get("MODEL_NAME", "facebook/opt-125m")          # Huggin
 MODEL_PATH = os.environ.get("MODEL_PATH", "facebook-opt-125m-simulated")  # K8s resource name — used in URL path
 PROFILE_PATH = os.environ.get("PROFILE_PATH", "/etc/agent/profile.yaml")
 CONTROL_PORT = int(os.environ.get("CONTROL_PORT", "8080"))
-DEFAULT_CYCLES = int(os.environ.get("MAX_CYCLES", "0"))  # 0 = run until stopped
 AUTOSTART = os.environ.get("AUTOSTART", "false").lower() in ("1", "true", "yes")
 
 SSL_CTX = ssl.create_default_context()
@@ -58,8 +60,47 @@ def status_str(code):
     return f"{c}[{code}]{_RST}"
 
 
+_ANSI = re.compile(r"\033\[[0-9;]*m")
+
+
+class LogBuffer:
+    """Last N log lines, so the console can tail an agent without Kubernetes API access.
+
+    Every line gets a monotonic seq; clients poll with ?since=<seq> and get only what
+    is new. Stored stripped of ANSI colour (the UI applies its own); stdout keeps the
+    colour so `oc logs` / follow-agents.sh look unchanged.
+    """
+
+    MAX_LINES = 500
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._lines = collections.deque(maxlen=self.MAX_LINES)
+        self._seq = 0
+
+    def add(self, ts, msg):
+        with self._lock:
+            self._seq += 1
+            self._lines.append({"seq": self._seq, "t": time.time(),
+                                "ts": ts, "msg": _ANSI.sub("", msg)})
+
+    def since(self, seq):
+        with self._lock:
+            # A cursor beyond our own sequence means the client is ahead of us, i.e. this
+            # pod restarted and began numbering from 1 again. Treat it as a fresh start and
+            # replay the buffer, otherwise the console would silently skip the restart's
+            # own startup lines until the new pod caught back up to the stale cursor.
+            if seq > self._seq:
+                seq = 0
+            return [l for l in self._lines if l["seq"] > seq], self._seq
+
+
+LOGS = LogBuffer()
+
+
 def log(msg):
     ts = datetime.utcnow().strftime("%H:%M:%S")
+    LOGS.add(ts, msg)
     print(f"[{ts}] {msg}", flush=True)
 
 
@@ -106,7 +147,6 @@ class Stats:
             self.server_err = 0    # 5xx
             self.net_err = 0       # transport failure, no HTTP status
             self.tokens = 0
-            self.cycles = 0
             self.last_status = None
             self.last_latency_ms = None
             self.run_seconds = 0.0
@@ -127,10 +167,6 @@ class Stats:
                 self.tokens += tokens
             self.last_status = status
             self.last_latency_ms = round(elapsed * 1000)
-
-    def cycle_done(self):
-        with self._lock:
-            self.cycles += 1
 
     def mark_running(self):
         with self._lock:
@@ -158,7 +194,6 @@ class Stats:
                 "net_err": self.net_err,
                 "errors": errors,
                 "tokens": self.tokens,
-                "cycles": self.cycles,
                 "success_ratio": round(self.ok / total, 4) if total else None,
                 "last_status": self.last_status,
                 "last_latency_ms": self.last_latency_ms,
@@ -169,6 +204,21 @@ class Stats:
 STATS = Stats()
 
 
+def token_info(fetched_at, expires_at, error):
+    """Age and remaining validity of a credential, in seconds, as of right now.
+
+    Computed here rather than sent as raw epochs so the UI never has to reconcile the
+    browser's clock with the pod's.
+    """
+    now = time.time()
+    return {
+        "fetched_at": fetched_at,
+        "age_s": round(now - fetched_at, 1) if fetched_at else None,
+        "ttl_s": round(expires_at - now, 1) if expires_at else None,
+        "error": error,
+    }
+
+
 class ApiKeyManager:
     """Mints a MaaS API key using the JWT, caches it, refreshes before expiry."""
 
@@ -177,8 +227,12 @@ class ApiKeyManager:
     def __init__(self, token_manager):
         self._tm = token_manager
         self._key = None
-        self._expires_at = 0
+        self._expires_at = 0        # refresh deadline (expiry minus a safety margin)
         self._lock = threading.Lock()
+        # Surfaced on /status so the console can show token health per agent.
+        self.fetched_at = None      # epoch of the last successful mint
+        self.hard_expires_at = None # epoch the key actually stops being valid
+        self.last_error = None
 
     def get_key(self):
         with self._lock:
@@ -205,23 +259,36 @@ class ApiKeyManager:
             with urllib.request.urlopen(req, context=SSL_CTX, timeout=15) as resp:
                 body = json.loads(resp.read())
             self._key = body["key"]
-            self._expires_at = time.time() + self.KEY_TTL_SECONDS - 60
+            now = time.time()
+            self._expires_at = now + self.KEY_TTL_SECONDS - 60
+            self.fetched_at = now
+            self.hard_expires_at = now + self.KEY_TTL_SECONDS
+            self.last_error = None
             log(f"🎫 {status_str(201)} API key minted (expires in {self.KEY_TTL_SECONDS}s)")
             return self._key
         except urllib.error.HTTPError as e:
+            self.last_error = f"HTTP {e.code}"
             log(f"🎫 {status_str(e.code)} API key mint failed: {e.reason}")
             raise
         except Exception as e:
+            self.last_error = str(e)[:80]
             log(f"🎫 {status_str(0)} API key mint error: {e}")
             raise
+
+    def info(self):
+        """Age/TTL computed agent-side, so the browser's clock never matters."""
+        return token_info(self.fetched_at, self.hard_expires_at, self.last_error)
 
 
 class TokenManager:
     def __init__(self):
         self._token = None
-        self._expires_at = 0
+        self._expires_at = 0        # refresh deadline (expiry minus a safety margin)
         self._lock = threading.Lock()
         self.last_claims = {}
+        self.fetched_at = None      # epoch of the last successful mint
+        self.hard_expires_at = None # epoch from the JWT's own exp claim
+        self.last_error = None
 
     def get_token(self):
         with self._lock:
@@ -243,7 +310,12 @@ class TokenManager:
                 body = json.loads(resp.read())
             self._token = body["access_token"]
             expires_in = body.get("expires_in", 300)
-            self._expires_at = time.time() + expires_in - 30
+            now = time.time()
+            self._expires_at = now + expires_in - 30
+            self.fetched_at = now
+            # Overwritten below with the JWT's own exp claim when it decodes.
+            self.hard_expires_at = now + expires_in
+            self.last_error = None
             # Decode and log key JWT claims
             try:
                 import base64
@@ -253,16 +325,23 @@ class TokenManager:
                 exp_ts = claims.get('exp')
                 exp_str = datetime.utcfromtimestamp(exp_ts).strftime('%H:%M:%S UTC') if exp_ts else '?'
                 self.last_claims = {"groups": claims.get("groups", []), "exp": exp_ts}
+                if exp_ts:
+                    self.hard_expires_at = float(exp_ts)
                 log(f"🔑 {status_str(200)} groups={claims.get('groups',[])} iss={claims.get('iss','').split('/')[-1]} exp={exp_str}")
             except Exception:
                 log(f"🔑 {status_str(200)} token minted (expires_in={expires_in}s)")
             return self._token
         except urllib.error.HTTPError as e:
+            self.last_error = f"HTTP {e.code}"
             log(f"🔑 {status_str(e.code)} token mint failed: {e.reason}")
             raise
         except Exception as e:
+            self.last_error = str(e)[:80]
             log(f"🔑 {status_str(0)} token mint error: {e}")
             raise
+
+    def info(self):
+        return token_info(self.fetched_at, self.hard_expires_at, self.last_error)
 
 
 def call_inference(api_key, prompt, model=MODEL_NAME, path=MODEL_PATH):
@@ -292,7 +371,9 @@ def call_inference(api_key, prompt, model=MODEL_NAME, path=MODEL_PATH):
         return e.code, elapsed, 0
     except Exception as e:
         elapsed = time.time() - t0
-        log(f"💬 request error: {e}")
+        # Carry the [0] marker here too, matching the token/key mint error lines, so the
+        # reason text lands in the same filter bucket as the result line it belongs to.
+        log(f"💬 {status_str(0)} request error: {e}")
         return 0, elapsed, 0
 
 
@@ -309,60 +390,41 @@ def send(keys, prompt, model, label):
     log(f"💬 {status_str(status)} {elapsed:.2f}s | {label} | tokens: {tok_count}")
 
 
-def run_conversational(profile, keys, model, max_cycles):
+def run_conversational(profile, keys, model):
     think_min = profile.get("thinkTimeMinSec", 3)
     think_max = profile.get("thinkTimeMaxSec", 8)
     prompt = profile.get("promptTemplate", "Hello, how can you help me today?")
-    cycle = 0
-
     while working():
-        if max_cycles and cycle >= max_cycles:
-            log(f"Completed {max_cycles} cycles — stopping")
-            return
         send(keys, prompt, model, "conversational")
-        cycle += 1
-        STATS.cycle_done()
         _interruptible_sleep(random.uniform(think_min, think_max))
 
 
-def run_burst(profile, keys, model, max_cycles):
+def run_burst(profile, keys, model):
     think_min = profile.get("thinkTimeMinSec", 10)
     think_max = profile.get("thinkTimeMaxSec", 30)
     burst_min = profile.get("burstSizeMin", 3)
     burst_max = profile.get("burstSizeMax", 5)
     prompt = profile.get("promptTemplate", "Review this code for issues.")
-    cycle = 0
-
     while working():
-        if max_cycles and cycle >= max_cycles:
-            log(f"Completed {max_cycles} cycles — stopping")
-            return
         burst_size = random.randint(burst_min, burst_max)
         log(f"Sending burst of {burst_size} requests")
         for i in range(burst_size):
             if not working():
                 return
             send(keys, prompt, model, f"burst {i+1}/{burst_size}")
-        cycle += 1
-        STATS.cycle_done()
         sleep_for = random.uniform(think_min, think_max)
         log(f"Burst complete, pausing {sleep_for:.0f}s")
         _interruptible_sleep(sleep_for)
 
 
-def run_periodic(profile, keys, model, max_cycles):
+def run_periodic(profile, keys, model):
     burst_min = profile.get("burstSizeMin", 5)
     burst_max = profile.get("burstSizeMax", 10)
     think_min = profile.get("thinkTimeMinSec", 1)
     think_max = profile.get("thinkTimeMaxSec", 3)
     pause = profile.get("pauseAfterBurstSec", 30)
     prompt = profile.get("promptTemplate", "Analyze this data point.")
-    cycle = 0
-
     while working():
-        if max_cycles and cycle >= max_cycles:
-            log(f"Completed {max_cycles} cycles — stopping")
-            return
         burst_size = random.randint(burst_min, burst_max)
         log(f"Sending periodic burst of {burst_size} requests")
         for i in range(burst_size):
@@ -371,8 +433,6 @@ def run_periodic(profile, keys, model, max_cycles):
             send(keys, prompt, model, f"periodic {i+1}/{burst_size}")
             if i < burst_size - 1:
                 _interruptible_sleep(random.uniform(think_min, think_max))
-        cycle += 1
-        STATS.cycle_done()
         log(f"Periodic burst complete, long pause {pause}s")
         _interruptible_sleep(pause)
 
@@ -405,10 +465,11 @@ class Worker(threading.Thread):
         self.keys = keys
         self.model = model
         self.pattern = profile.get("pattern", "conversational")
-        self.cycles = DEFAULT_CYCLES
-        self.state = "idle"   # idle | running | completed
+        self.state = "idle"   # idle | running
 
     def run(self):
+        # The runner only returns once working() goes false, i.e. /stop or SIGTERM.
+        # There is no self-termination: an agent repeats its profile until told to stop.
         runner = PATTERNS[self.pattern]
         while not _shutdown_flag.is_set():
             _run_flag.wait()
@@ -416,25 +477,21 @@ class Worker(threading.Thread):
                 break
             self.state = "running"
             STATS.mark_running()
-            limit = "unlimited" if not self.cycles else f"{self.cycles} cycle(s)"
-            log(f"▶ started — pattern={self.pattern}, {limit}")
+            log(f"▶ started — pattern={self.pattern}, running until stopped")
             try:
-                runner(self.profile, self.keys, self.model, self.cycles)
+                runner(self.profile, self.keys, self.model)
             except Exception as e:
                 log(f"⚠ pattern error: {e}")
             STATS.mark_stopped()
-            # Distinguish "ran out of cycles" from "operator pressed stop"
-            self.state = "completed" if _run_flag.is_set() else "idle"
-            if self.state == "completed":
-                log("⏹ done — idling")
-                _run_flag.clear()
-            else:
-                log("⏹ stopped — idling")
+            self.state = "idle"
+            log("⏹ stopped — idling")
 
 
 class ControlHandler(BaseHTTPRequestHandler):
     server_version = "maas-agent/1.0"
     worker = None   # set in main()
+    tokens = None   # TokenManager, set in main()
+    keys = None     # ApiKeyManager, set in main()
 
     def log_message(self, *_args):
         pass  # keep the pod log to agent traffic only
@@ -472,15 +529,27 @@ class ControlHandler(BaseHTTPRequestHandler):
             "model": w.model,
             "state": state,
             "running": wanted,
-            "cycles_limit": w.cycles,
+            "jwt": self.tokens.info() if self.tokens else None,
+            "api_key": self.keys.info() if self.keys else None,
             "uptime_seconds": round(time.time() - BOOT_TIME, 1),
         })
         return snap
 
     def do_GET(self):
-        if self.path.rstrip("/") in ("/status", ""):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        qs = urllib.parse.parse_qs(parsed.query)
+        if path in ("/status", ""):
             self._send(200, self._status())
-        elif self.path.rstrip("/") == "/healthz":
+        elif path == "/logs":
+            try:
+                since = int(qs.get("since", ["0"])[0])
+            except (TypeError, ValueError):
+                since = 0
+            lines, seq = LOGS.since(since)
+            self._send(200, {"agent_id": AGENT_ID, "group": AGENT_GROUP,
+                             "seq": seq, "lines": lines})
+        elif path == "/healthz":
             self._send(200, {"ok": True})
         else:
             self._send(404, {"error": "not found"})
@@ -491,13 +560,6 @@ class ControlHandler(BaseHTTPRequestHandler):
         if path == "/start":
             if body.get("reset"):
                 STATS.reset()
-            cycles = body.get("cycles")
-            if cycles is not None:
-                try:
-                    self.worker.cycles = max(0, int(cycles))
-                except (TypeError, ValueError):
-                    self._send(400, {"error": "cycles must be an integer"})
-                    return
             _run_flag.set()
             self._send(200, self._status())
         elif path == "/stop":
@@ -569,6 +631,8 @@ def main():
     worker.start()
 
     ControlHandler.worker = worker
+    ControlHandler.tokens = tm
+    ControlHandler.keys = keys
     httpd = ThreadingHTTPServer(("0.0.0.0", CONTROL_PORT), ControlHandler)
     httpd.daemon_threads = True
     log(f"Agent {AGENT_ID} ready (model={model}, pattern={pattern}) — control API on :{CONTROL_PORT}")

@@ -38,7 +38,7 @@ FOLLOW="${SELECTED:-$AGENT_IDS}"
 
 echo ""
 echo -e "  ${BOLD}${CYAN}━━ Following agent logs${NC} ${DIM}(Ctrl-C to stop watching)${NC}"
-echo -e "  ${D_CYAN}■${NC} chatbots   ${D_GREEN}■${NC} code-reviewers   ${D_PURPLE}■${NC} business-analysts"
+echo -e "  ${D_CYAN}■${NC} chatbots   ${D_PINK}■${NC} code-reviewers   ${D_PURPLE}■${NC} business-analysts"
 echo ""
 
 # Wait for the pods to exist before attaching tails
@@ -55,10 +55,7 @@ done
 stop_spinner
 echo ""
 
-DONE_DIR=$(mktemp -d)
-TOTAL=$(echo "$FOLLOW" | wc -w | tr -d ' ')
-# shellcheck disable=SC2064
-trap "kill \$(jobs -p) 2>/dev/null; rm -rf '$DONE_DIR'; echo ''; log_info 'Log tailing stopped.'" INT TERM EXIT
+trap 'kill $(jobs -p) 2>/dev/null; echo ""; log_info "Log tailing stopped."' INT TERM EXIT
 
 for agent_id in $FOLLOW; do
     ns=$(agent_ns "$agent_id")
@@ -66,22 +63,10 @@ for agent_id in $FOLLOW; do
     (
         oc_w logs -f deployment/"$agent_id" -n "$ns" 2>/dev/null | while IFS= read -r line; do
             printf "${color}[%-10s]${NC} %s\n" "$agent_id" "$line"
-            # "done — idling" = finished its cycle budget (vs "stopped — idling")
-            case "$line" in
-                *"done — idling"*) touch "$DONE_DIR/$agent_id" ;;
-            esac
         done
     ) &
 done
 
-# Watch for every followed agent finishing its cycle budget
-while true; do
-    sleep 3
-    DONE_COUNT=$(find "$DONE_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
-    if [ "$DONE_COUNT" -ge "$TOTAL" ]; then
-        kill "$(jobs -p)" 2>/dev/null || true
-        echo ""
-        log_info "${D_PINK}All followed agents completed their cycles.${NC}"
-        break
-    fi
-done
+# Agents never self-terminate — they repeat their profile until /stop — so just tail
+# until the operator interrupts. The same stream is available in the console's Logs tab.
+wait

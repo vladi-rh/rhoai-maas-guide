@@ -54,7 +54,7 @@ agent_ns() {
 agent_color() {
     case "$(agent_group "$1")" in
         chatbots)          echo "$D_CYAN" ;;
-        code-reviewers)    echo "$D_GREEN" ;;
+        code-reviewers)    echo "$D_PINK" ;;
         business-analysts) echo "$D_PURPLE" ;;
         *)                 echo "$D_ORANGE" ;;
     esac
@@ -90,7 +90,7 @@ GREEN = '\033[38;5;84m'; RED = '\033[38;5;203m'
 ORANGE = '\033[38;5;215m'; COMMENT = '\033[38;5;103m'
 GROUP = {
     'chatbots': '\033[38;5;117m',
-    'code-reviewers': '\033[38;5;84m',
+    'code-reviewers': '\033[38;5;212m',
     'business-analysts': '\033[38;5;141m',
 }
 

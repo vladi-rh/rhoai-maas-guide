@@ -218,7 +218,7 @@ else
 fi
 echo ""
 echo "  CLI equivalents:"
-echo "    ./start-agents.sh  --workload-context ${WORKLOAD_CTX} [--cycles N]"
+echo "    ./start-agents.sh  --workload-context ${WORKLOAD_CTX}"
 echo "    ./stop-agents.sh   --workload-context ${WORKLOAD_CTX}"
 echo "    ./follow-agents.sh --workload-context ${WORKLOAD_CTX}"
 echo ""

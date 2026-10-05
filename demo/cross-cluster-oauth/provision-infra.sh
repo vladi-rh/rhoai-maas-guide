@@ -213,7 +213,9 @@ if oc_m get authpolicy "$AUTH_POLICY" -n openshift-ingress &>/dev/null; then
 
     # 3. Populate model_access in require-group-membership rego.
     #    managed=false prevents the operator from doing this via MaaSAuthPolicy,
-    #    so we inject the group→model mapping manually. See AUTH_POLICY.md.
+    #    so we inject the group→model mapping manually. The MaaSAuthPolicy CRs stay
+    #    Pending in that state ("opted out of controller management") and serve only
+    #    as documentation of intended access — this rego is what is actually enforced.
     MODEL_REGO_KEY="${MODEL_NS}/${MODEL_NAME}"
     GROUPS_LIST=$(printf '"%s", ' "${REALM_GROUPS[@]}" | sed 's/, $//')
 

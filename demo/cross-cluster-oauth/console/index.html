@@ -53,12 +53,7 @@ button:hover:not(:disabled) { filter: brightness(1.25); }
 button:disabled { opacity: .45; cursor: not-allowed; }
 button.primary { background: var(--green); border-color: var(--green); color: #1d2b20; font-weight: 700; }
 button.danger  { background: var(--red);   border-color: var(--red);   color: #2b1d1d; font-weight: 700; }
-label.cycles { color: var(--comment); font-size: 12px; display: flex; align-items: center; gap: 6px; }
-label.cycles input {
-  font: inherit; width: 64px; padding: 5px 8px; text-align: right;
-  background: var(--bg); color: var(--fg);
-  border: 1px solid var(--line); border-radius: 5px;
-}
+.runhint { color: var(--comment); font-size: 11px; font-style: italic; }
 .spacer { flex: 1; }
 
 /* ── Aggregate strip ──────────────────────────────────────────────────── */
@@ -68,7 +63,18 @@ label.cycles input {
 .tot .v { font-size: 20px; font-weight: 700; }
 
 /* ── Agent cards ──────────────────────────────────────────────────────── */
-.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+/* One block per agent group so the types stack vertically; cards flow within a group. */
+.grid { display: block; }
+.group { margin-bottom: 24px; }
+.group-head { display: flex; align-items: center; gap: 10px; margin: 0 0 9px 2px; }
+.group-head .dot { width: 11px; height: 11px; }
+.group-head h2 {
+  font-size: 13px; margin: 0; font-weight: 700;
+  letter-spacing: .8px; text-transform: uppercase; color: var(--accent);
+}
+.group-head .gmeta { color: var(--comment); font-size: 11px; }
+.group-head .rule { flex: 1; height: 1px; background: var(--line); }
+.row { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
 .card {
   background: var(--panel); border: 1px solid var(--line);
   border-left: 4px solid var(--accent, var(--comment));
@@ -86,10 +92,15 @@ label.cycles input {
 .badge.starting    { color: var(--cyan); }
 .badge.stopping    { color: var(--orange); }
 .badge.idle        { color: var(--comment); }
-.badge.completed   { color: var(--yellow); }
 .badge.unreachable,
 .badge.error       { color: var(--red); }
-.meta { color: var(--comment); font-size: 11px; margin-bottom: 11px; }
+.creds { margin: 2px 0 11px; }
+.cred { display: flex; align-items: baseline; gap: 7px; font-size: 11px; line-height: 1.7; }
+.cred .ci { width: 13px; }
+.cred .cl { color: var(--comment); width: 26px; font-weight: 700; letter-spacing: .5px; }
+.cred .cv { font-weight: 600; }
+.cred .cv.dim { color: var(--comment); font-weight: 400; }
+.cred .cage { color: var(--comment); margin-left: auto; }
 
 /* Toggle switch */
 .toggle { margin-left: auto; position: relative; width: 44px; height: 24px; flex: none; }
@@ -122,6 +133,55 @@ label.cycles input {
 .bar .s5 { background: var(--red); }
 .barlbl { display: flex; justify-content: space-between; color: var(--comment); font-size: 11px; margin-top: 5px; }
 
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; margin: 18px 0 0; border-bottom: 1px solid var(--line); }
+.tab {
+  font: inherit; font-size: 13px; cursor: pointer; padding: 8px 18px;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--comment); border-radius: 0;
+}
+.tab:hover:not(.active) { color: var(--fg); filter: none; }
+.tab.active { color: var(--fg); border-bottom-color: var(--pink); font-weight: 700; }
+.tab .count { color: var(--comment); font-size: 11px; font-weight: 400; }
+.pane { display: none; }
+.pane.active { display: block; }
+
+/* ── Log pane ─────────────────────────────────────────────────────────── */
+.logbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
+.logbar select, .logbar button { font: inherit; font-size: 12px; }
+.logbar select {
+  padding: 6px 8px; background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 5px;
+}
+.logbar .legend { display: flex; gap: 14px; margin-left: auto; font-size: 11px; color: var(--comment); }
+.logbar .legend span { display: flex; align-items: center; gap: 5px; }
+.logbar .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.chips { display: flex; gap: 6px; }
+.chip {
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--comment);
+}
+.chip:hover:not(:disabled) { filter: brightness(1.3); }
+.chip.off { opacity: .45; text-decoration: line-through; }
+/* 201 shares the 2xx green and 0 shares the "other" grey: they are split out for
+   findability, not because they are a different severity. */
+.chip[data-cls="2xx"]:not(.off)   { border-color: var(--green);   color: var(--green); }
+.chip[data-cls="201"]:not(.off)   { border-color: var(--green);   color: var(--green); }
+.chip[data-cls="4xx"]:not(.off)   { border-color: var(--orange);  color: var(--orange); }
+.chip[data-cls="5xx"]:not(.off)   { border-color: var(--red);     color: var(--red); }
+.chip[data-cls="0"]:not(.off)     { border-color: var(--comment); color: var(--fg); }
+.chip[data-cls="other"]:not(.off) { border-color: var(--comment); color: var(--fg); }
+.chip b { font-weight: 700; }
+#logview {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; height: 60vh; overflow-y: auto;
+  font-size: 12px; line-height: 1.65; white-space: pre-wrap; word-break: break-word;
+}
+#logview .l { display: block; }
+#logview .l .who { font-weight: 700; }
+#logview .l .ts { color: var(--comment); }
+#logview .empty { color: var(--comment); font-style: italic; }
+
 .foot { margin-top: 22px; color: var(--comment); font-size: 11px; }
 .err { color: var(--red); font-size: 11px; margin-top: 8px; word-break: break-all; }
 </style>
@@ -138,14 +198,38 @@ label.cycles input {
   <button id="startAll" class="primary">▶ Start all</button>
   <button id="stopAll" class="danger">■ Stop all</button>
   <button id="resetAll">↺ Reset counters</button>
-  <label class="cycles">cycles
-    <input id="cycles" type="number" min="0" step="1" value="0" title="0 = run until stopped">
-  </label>
+  <span class="runhint">agents repeat their profile pattern until stopped</span>
   <div class="spacer"></div>
   <div class="totals" id="totals"></div>
 </div>
 
-<div class="grid" id="grid"></div>
+<div class="tabs">
+  <button class="tab active" data-pane="agents">Agents</button>
+  <button class="tab" data-pane="logs">Logs <span class="count" id="logCount"></span></button>
+</div>
+
+<div class="pane active" id="pane-agents">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="pane" id="pane-logs">
+  <div class="logbar">
+    <select id="logFilter"><option value="">all agents</option></select>
+    <span class="chips" id="logChips">
+      <button class="chip" data-cls="2xx"   title="Successful calls (HTTP 2xx) excluding 201 — in practice the 200s from inference and token mint">2xx <b>0</b></button>
+      <button class="chip" data-cls="201"   title="HTTP 201 — a MaaS API key was minted. Once per agent per hour, so easy to miss among the 200s">201 <b>0</b></button>
+      <button class="chip" data-cls="4xx"   title="Client errors (HTTP 4xx) — 403 on revoked access, 429 on rate limit">4xx <b>0</b></button>
+      <button class="chip" data-cls="5xx"   title="Server errors (HTTP 5xx) — e.g. 503 when the gateway wasm filter is failing closed">5xx <b>0</b></button>
+      <button class="chip" data-cls="0"     title="[0] — transport failure with no HTTP response at all: DNS, TLS, connection refused or timeout">0 <b>0</b></button>
+      <button class="chip" data-cls="other" title="Lines with no HTTP status — started/stopped, pod ready, pattern notices">other <b>0</b></button>
+    </span>
+    <button id="logPause">⏸ Pause</button>
+    <button id="logClear">Clear</button>
+    <span class="runhint" id="logStatus"></span>
+    <span class="legend" id="logLegend"></span>
+  </div>
+  <div id="logview"><span class="empty">waiting for log lines…</span></div>
+</div>
 
 <p class="foot">
   Polling <code>/api/status</code> every 2s. Counters are in-memory per pod and
@@ -182,11 +266,6 @@ async function api(path, method = "GET", body) {
   return res.json();
 }
 
-function cyclesValue() {
-  const v = parseInt(document.getElementById("cycles").value, 10);
-  return Number.isFinite(v) && v >= 0 ? v : 0;
-}
-
 function renderTotals(t) {
   document.getElementById("totals").innerHTML = `
     <div class="tot"><span class="k">Agents running</span>
@@ -202,6 +281,27 @@ function renderTotals(t) {
         : t.success_ratio > 0.95 ? "var(--green)"
         : t.success_ratio > 0.5 ? "var(--orange)" : "var(--red)"}">
       ${ratioText(t.success_ratio)}</span></div>`;
+}
+
+// One credential line: how long it stays valid, and how long ago it was fetched.
+// age_s / ttl_s are computed agent-side, so no browser-clock reconciliation.
+//
+// Note: the JWT is only used to mint an API key, and the key is cached for an hour, so an
+// expired JWT is usually harmless — it gets re-minted on the next key refresh. Shown red
+// anyway, deliberately: an explicit signal beats a hidden one.
+function credRow(icon, label, c, opts = {}) {
+  const row = (body) => `<div class="cred" title="${esc(opts.title || "")}">` +
+    `<span class="ci">${icon}</span><span class="cl">${label}</span>${body}</div>`;
+  if (!c) return row(`<span class="cv dim">—</span>`);
+  if (c.error) return row(`<span class="cv" style="color:var(--red)">failed · ${esc(c.error)}</span>`);
+  if (c.ttl_s == null) return row(`<span class="cv dim">not fetched yet</span>`);
+
+  const col  = c.ttl_s <= 0 ? "var(--red)"
+             : c.ttl_s < 60 ? "var(--orange)"
+                            : "var(--green)";
+  const text = c.ttl_s <= 0 ? `expired ${fmtDur(-c.ttl_s)} ago` : `valid ${fmtDur(c.ttl_s)}`;
+  return row(`<span class="cv" style="color:${col}">${text}</span>` +
+             `<span class="cage">fetched ${fmtDur(c.age_s)} ago</span>`);
 }
 
 function cardHTML(a) {
@@ -222,8 +322,13 @@ function cardHTML(a) {
         <span class="slider"></span>
       </label>
     </div>
-    <div class="meta">${a.group} · ${a.namespace} · ${a.pattern || "—"}
-      · cycles ${a.cycles_limit ? a.cycles_limit : "∞"}</div>
+    <div class="creds">
+      ${credRow("🔑", "JWT", a.jwt, {
+        title: "Keycloak client-credentials JWT. Minted at pod start and used only to mint " +
+               "the MaaS API key, so it normally sits expired while a valid key is cached."})}
+      ${credRow("🎫", "KEY", a.api_key, {
+        title: "MaaS API key minted with the JWT. This is what every inference call uses."})}
+    </div>
 
     <div class="stats">
       <div class="stat"><div class="k">Requests</div><div class="v">${fmtNum(a.requests)}</div></div>
@@ -246,15 +351,52 @@ function cardHTML(a) {
     </div>
     <div class="barlbl">
       <span>success ${ratioText(a.success_ratio)}</span>
-      <span>${a.last_latency_ms != null ? a.last_latency_ms + "ms" : ""}</span>
+      <span title="End-to-end round trip of this agent's most recent inference request, timed inside the agent pod: cross-cluster hop + gateway admission (Envoy wasm, Authorino, Limitador) + model time, until the full response body is read. Excludes credential minting.">${
+        a.last_latency_ms != null ? "last e2e " + a.last_latency_ms + "ms" : ""}</span>
     </div>
     ${a.error ? `<div class="err">${a.error}</div>` : ""}
   </div>`;
 }
 
+// Bucket agents by group, preserving the order the console registry returned them in
+// (registry order = shared.sh's AGENT_IDS), so group blocks are stable across polls.
+function byGroup(agents) {
+  const order = [];
+  const map = new Map();
+  for (const a of agents) {
+    if (!map.has(a.group)) { map.set(a.group, []); order.push(a.group); }
+    map.get(a.group).push(a);
+  }
+  return order.map(g => [g, map.get(g)]);
+}
+
+function groupHTML(name, list) {
+  const running = list.filter(a => a.running).length;
+  const down = list.filter(a => !a.reachable).length;
+  // namespace and pattern are per-group (one agent-profile ConfigMap per namespace),
+  // so they belong here rather than repeated on every card. Guard anyway: if a profile
+  // were edited in-cluster for one agent only, say "mixed" instead of lying.
+  const uniq = k => [...new Set(list.map(a => a[k]).filter(Boolean))];
+  const ns = uniq("namespace"), pat = uniq("pattern");
+  const one = v => v.length === 1 ? v[0] : (v.length ? "mixed" : "—");
+  return `
+  <section class="group" style="--accent:${list[0].color}">
+    <div class="group-head">
+      <span class="dot"></span>
+      <h2>${name}</h2>
+      <span class="gmeta">${one(ns)} · ${one(pat)} · ${running}/${list.length} running${
+        down ? ` · <span style="color:var(--red)">${down} unreachable</span>` : ""}</span>
+      <span class="rule"></span>
+    </div>
+    <div class="row">${list.map(cardHTML).join("")}</div>
+  </section>`;
+}
+
 function render(data) {
   renderTotals(data.totals);
-  document.getElementById("grid").innerHTML = data.agents.map(cardHTML).join("");
+  renderLegend(data.agents);
+  document.getElementById("grid").innerHTML =
+    byGroup(data.agents).map(([name, list]) => groupHTML(name, list)).join("");
   for (const el of document.querySelectorAll(".toggle input")) {
     el.addEventListener("change", onToggle);
   }
@@ -266,8 +408,7 @@ async function onToggle(ev) {
   busy.add(id);
   ev.target.disabled = true;
   try {
-    await api(`/api/agents/${id}/${action}`, "POST",
-              action === "start" ? { cycles: cyclesValue() } : {});
+    await api(`/api/agents/${id}/${action}`, "POST", {});
   } catch (e) {
     console.error(e);
   } finally {
@@ -288,7 +429,7 @@ async function broadcast(action, body) {
   }
 }
 
-document.getElementById("startAll").onclick = () => broadcast("start", { cycles: cyclesValue() });
+document.getElementById("startAll").onclick = () => broadcast("start", {});
 document.getElementById("stopAll").onclick  = () => broadcast("stop");
 document.getElementById("resetAll").onclick = () => broadcast("reset");
 
@@ -306,8 +447,182 @@ async function refresh() {
   }
 }
 
+// ── Tabs ────────────────────────────────────────────────────────────────
+let activePane = "agents";
+for (const t of document.querySelectorAll(".tab")) {
+  t.addEventListener("click", () => {
+    activePane = t.dataset.pane;
+    for (const x of document.querySelectorAll(".tab")) x.classList.toggle("active", x === t);
+    for (const p of document.querySelectorAll(".pane")) {
+      p.classList.toggle("active", p.id === `pane-${activePane}`);
+    }
+    if (activePane === "logs") { stickBottom = true; pollLogs(); }
+  });
+}
+
+// ── Logs ────────────────────────────────────────────────────────────────
+// Hard cap on retained lines, so memory is flat no matter how long the tab stays open.
+// At the ~0.6 lines/s this fleet produces, 10000 lines is roughly a 4.5-hour window.
+// Cost is ~5 DOM nodes per line, so this is tens of MB in the renderer, not hundreds.
+const MAX_LOG_LINES = 10000;
+let cursors = {};          // agent_id -> last seq already rendered
+let logPaused = false;
+let stickBottom = true;    // auto-scroll unless the user scrolled up
+let logTotal = 0;
+let shownCount = 0;
+const clsCounts = { "2xx": 0, "201": 0, "4xx": 0, "5xx": 0, "0": 0, other: 0 };
+let legendDone = false;
+
+const logview = document.getElementById("logview");
+logview.addEventListener("scroll", () => {
+  stickBottom = logview.scrollHeight - logview.scrollTop - logview.clientHeight < 40;
+});
+
+function esc(s) {
+  return String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+// Colour the bracketed HTTP status the agent logs, matching the card stat colours.
+function paintStatus(msg) {
+  return esc(msg).replace(/\[(\d{3})\]/g, (m, code) => {
+    const n = parseInt(code, 10);
+    const col = n >= 200 && n < 300 ? "var(--green)" : "var(--red)";
+    return `<span style="color:${col};font-weight:700">[${code}]</span>`;
+  });
+}
+
+function renderLegend(agents) {
+  if (legendDone || !agents.length) return;
+  const seen = new Map();
+  for (const a of agents) if (!seen.has(a.group)) seen.set(a.group, a.color);
+  document.getElementById("logLegend").innerHTML =
+    [...seen].map(([g, c]) => `<span><i style="background:${c}"></i>${g}</span>`).join("");
+  const sel = document.getElementById("logFilter");
+  for (const a of agents) {
+    const o = document.createElement("option");
+    o.value = a.agent_id; o.textContent = a.agent_id;
+    sel.appendChild(o);
+  }
+  legendDone = true;
+}
+
+// Bucket a log line by the HTTP status the agent embedded as [NNN].
+// Buckets are mutually exclusive, so the chip counts sum to the buffer size.
+//
+// 201 and 0 get their own buckets rather than folding into 2xx and 5xx: 201 fires only on
+// an API-key mint (once an hour per agent) and would be invisible among hundreds of 200s,
+// and [0] is the agent's marker for a transport failure with no HTTP response at all,
+// which is a different fault from a server returning 5xx.
+function statusClass(msg) {
+  const m = /\[(\d{1,3})\]/.exec(msg);
+  if (!m) return "other";
+  const n = Number(m[1]);
+  if (n === 201) return "201";
+  if (n === 0) return "0";
+  if (n >= 200 && n < 300) return "2xx";
+  if (n >= 400 && n < 500) return "4xx";
+  if (n >= 500) return "5xx";
+  return "other";                       // 1xx / 3xx — not produced today
+}
+
+function chipFor(cls) { return document.querySelector(`.chip[data-cls="${cls}"]`); }
+function classEnabled(cls) { const c = chipFor(cls); return !c || !c.classList.contains("off"); }
+
+function bumpCount(cls, delta) {
+  clsCounts[cls] = Math.max(0, (clsCounts[cls] || 0) + delta);
+  const c = chipFor(cls);
+  if (c) c.querySelector("b").textContent = clsCounts[cls];
+}
+
+function visible(agent, el) {
+  return (!agent || el.dataset.agent === agent) && classEnabled(el.dataset.cls);
+}
+
+function updateLogStatus() {
+  document.getElementById("logStatus").textContent =
+    `${shownCount}/${logview.childElementCount} line(s) shown` + (logPaused ? " · paused" : "");
+}
+
+// Full re-evaluation of the buffer. Only called when a filter actually changes — never on
+// the 2s poll, which would mean 2000 style writes a tick. Lines are always appended to the
+// buffer and merely hidden, so changing a filter re-reveals everything still buffered.
+function applyFilter() {
+  const agent = document.getElementById("logFilter").value;
+  shownCount = 0;
+  for (const el of logview.querySelectorAll(".l")) {
+    const ok = visible(agent, el);
+    el.style.display = ok ? "" : "none";
+    if (ok) shownCount++;
+  }
+  updateLogStatus();
+}
+
+function appendLines(lines) {
+  if (!lines.length) return;
+  const agent = document.getElementById("logFilter").value;
+  const frag = document.createDocumentFragment();
+  for (const l of lines) {
+    const cls = statusClass(l.msg);
+    const el = document.createElement("span");
+    el.className = "l";
+    el.dataset.agent = l.agent_id;
+    el.dataset.cls = cls;
+    // Decide visibility once, here, instead of rescanning the whole buffer each poll.
+    if (visible(agent, el)) shownCount++; else el.style.display = "none";
+    el.innerHTML = `<span class="ts">${esc(l.ts)}</span> ` +
+                   `<span class="who" style="color:${l.color}">[${esc(l.agent_id)}]</span> ` +
+                   paintStatus(l.msg);
+    frag.appendChild(el);
+    bumpCount(cls, 1);
+  }
+  const empty = logview.querySelector(".empty");
+  if (empty) empty.remove();
+  logview.appendChild(frag);
+  logTotal += lines.length;
+  // Hard cap on retained lines: bounded memory regardless of how long the tab stays open.
+  while (logview.childElementCount > MAX_LOG_LINES) {
+    const gone = logview.firstElementChild;
+    bumpCount(gone.dataset.cls, -1);                 // keep chip counts == buffer contents
+    if (gone.style.display !== "none") shownCount--;
+    logview.removeChild(gone);
+  }
+  if (stickBottom) logview.scrollTop = logview.scrollHeight;
+}
+
+async function pollLogs() {
+  if (logPaused) return;
+  const after = Object.entries(cursors).map(([k, v]) => `${k}:${v}`).join(",");
+  try {
+    const d = await api(`/api/logs${after ? `?after=${encodeURIComponent(after)}` : ""}`);
+    cursors = d.cursors || cursors;
+    appendLines(d.lines || []);
+    updateLogStatus();
+    document.getElementById("logCount").textContent = logTotal ? `(${logTotal})` : "";
+  } catch (e) {
+    document.getElementById("logStatus").textContent = "log stream unreachable";
+  }
+}
+
+document.getElementById("logPause").onclick = (e) => {
+  logPaused = !logPaused;
+  e.target.textContent = logPaused ? "▶ Resume" : "⏸ Pause";
+  if (!logPaused) pollLogs();
+};
+document.getElementById("logClear").onclick = () => {
+  logview.innerHTML = '<span class="empty">cleared — new lines will appear here</span>';
+  logTotal = 0; shownCount = 0;
+  for (const k of Object.keys(clsCounts)) { clsCounts[k] = 0; bumpCount(k, 0); }
+  document.getElementById("logCount").textContent = "";
+  updateLogStatus();
+};
+document.getElementById("logFilter").onchange = applyFilter;
+for (const chip of document.querySelectorAll(".chip[data-cls]")) {
+  chip.addEventListener("click", () => { chip.classList.toggle("off"); applyFilter(); });
+}
+
 refresh();
 setInterval(refresh, POLL_MS);
+setInterval(() => { if (activePane === "logs") pollLogs(); }, POLL_MS);
 </script>
 </body>
 </html>

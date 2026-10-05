@@ -209,8 +209,6 @@ spec:
               value: "facebook-opt-125m-simulated"
             - name: PROFILE_PATH
               value: "/etc/agent/profile.yaml"
-            - name: MAX_CYCLES
-              value: "0"
           volumeMounts:
             - name: agent-script
               mountPath: /opt/agent

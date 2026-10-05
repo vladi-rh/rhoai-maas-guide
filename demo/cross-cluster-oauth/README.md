@@ -30,7 +30,7 @@ AI agent workloads running on a **Workload cluster** authenticate to MaaS on a s
 oc --context <ctx> get route agent-console -n agents-console -o jsonpath='{.spec.host}'
 
 # ...or drive the same API from the CLI
-./start-agents.sh  --workload-context <ctx> [--cycles N]
+./start-agents.sh  --workload-context <ctx>
 ./follow-agents.sh --workload-context <ctx>
 ./stop-agents.sh   --workload-context <ctx>
 
@@ -52,13 +52,30 @@ so no `oc port-forward` is needed:
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /api/status` | Per-agent and aggregate counters — requests, tokens, 2xx vs 4xx/5xx, uptime |
-| `POST /api/start` | Start all agents; body `{"cycles": N, "reset": bool}` |
+| `GET /api/logs` | Merged, time-ordered log tail from every agent (drives the console's Logs tab) |
+| `POST /api/start` | Start all agents; body `{"reset": bool}` (optional) |
 | `POST /api/stop` | Stop all agents |
 | `POST /api/reset` | Zero all counters |
 | `POST /api/agents/<id>/{start,stop,reset}` | Same, for one agent |
 
-The UI polls `/api/status` every 2s and colours each agent by group, matching the colours
-`follow-agents.sh` uses in the log tail.
+The UI has two tabs:
+
+- **Agents** — one row-block per group (chatbots / code-reviewers / business-analysts), each
+  with per-agent start/stop toggles and live counters. Polls `/api/status` every 2s.
+- **Logs** — a merged, time-ordered tail of every agent, colour-coded per group, with an
+  agent filter plus pause/clear. Each agent keeps its last 500 log lines in memory and serves
+  them on `/logs`; the console merges them. No Kubernetes API access or RBAC is needed, and
+  it shows the same lines as `follow-agents.sh`.
+
+Group colours match the ones `follow-agents.sh` uses in the terminal.
+
+Each card also shows credential health for that agent: the Keycloak JWT (`🔑`) and the
+minted MaaS API key (`🎫`), with how long each stays valid and how long ago it was
+fetched. Age and remaining validity are computed in the agent, so a skewed browser clock
+cannot misreport them.
+
+Agents have no run-length limit: `/start` makes an agent repeat its profile pattern until
+`/stop` is called for it (or for all).
 
 > The console Route is **unauthenticated** — anyone who can reach it can start and stop
 > agents. Agent credentials never leave the agent pods; only traffic control is exposed.

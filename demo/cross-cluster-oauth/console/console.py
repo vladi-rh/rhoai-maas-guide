@@ -7,6 +7,7 @@ Agent endpoints are reached over cluster DNS (<agent>.<namespace>.svc:8080).
     GET  /                        -> index.html
     GET  /api/agents              -> registry (id, group, namespace, colour)
     GET  /api/status              -> fan-out snapshot of every agent + totals
+    GET  /api/logs?after=id:seq,… -> merged, time-ordered log tail from all agents
     POST /api/start|stop|reset    -> broadcast to every agent
     POST /api/agents/<id>/start|stop|reset
     GET  /healthz
@@ -17,6 +18,7 @@ AGENTS env var holds the registry as JSON, written by provision-console.sh.
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,11 +30,11 @@ AGENT_TIMEOUT = float(os.environ.get("AGENT_TIMEOUT", "5"))
 AGENTS = json.loads(os.environ.get("AGENTS", "[]"))
 BY_ID = {a["id"]: a for a in AGENTS}
 
-# Dracula palette — must match shared.sh's D_CYAN / D_GREEN / D_PURPLE so the
+# Dracula palette — must match shared.sh's D_CYAN / D_PINK / D_PURPLE so the
 # UI and the colour-coded log tail in follow-agents.sh agree.
 GROUP_COLORS = {
     "chatbots": "#8BE9FD",
-    "code-reviewers": "#50FA7B",
+    "code-reviewers": "#FF79C6",
     "business-analysts": "#BD93F9",
 }
 DEFAULT_COLOR = "#FFB86C"
@@ -75,9 +77,42 @@ def decorate(agent, result):
 
 def fan_out(path, method="GET", payload=None, only=None):
     targets = [BY_ID[only]] if only else AGENTS
-    results = list(POOL.map(lambda a: decorate(a, call_agent(a, path, method, payload)), targets))
-    results.sort(key=lambda r: r["agent_id"])
-    return results
+    # Keep registry order (chatbot-1, chatbot-2, reviewer-1, … from shared.sh's AGENT_IDS)
+    # rather than sorting: it keeps same-group agents adjacent, which both the web UI's
+    # per-group rows and the CLI table rely on. POOL.map preserves input order.
+    return list(POOL.map(lambda a: decorate(a, call_agent(a, path, method, payload)), targets))
+
+
+def collect_logs(cursors):
+    """Fan out to every agent's /logs and merge into one time-ordered stream.
+
+    cursors maps agent_id -> last seq the client already has. An agent missing from
+    cursors is treated as "first poll": we ask for everything it still has buffered.
+    """
+    def fetch(agent):
+        since = cursors.get(agent["id"], 0)
+        res = call_agent(agent, f"/logs?since={since}")
+        out = []
+        for line in res.get("lines", []):
+            out.append({
+                "agent_id": agent["id"],
+                "group": agent["group"],
+                "color": agent_color(agent["group"]),
+                "seq": line.get("seq"),
+                "t": line.get("t"),
+                "ts": line.get("ts"),
+                "msg": line.get("msg", ""),
+            })
+        return agent["id"], res.get("seq", since), out
+
+    lines, new_cursors = [], {}
+    for aid, seq, chunk in POOL.map(fetch, AGENTS):
+        new_cursors[aid] = seq
+        lines.extend(chunk)
+    # Agents are independent clocks, but they run on the same cluster; ordering by the
+    # line's own timestamp interleaves them the way `oc logs` side by side would.
+    lines.sort(key=lambda l: (l["t"] or 0, l["agent_id"], l["seq"] or 0))
+    return {"lines": lines, "cursors": new_cursors}
 
 
 def totals(results):
@@ -143,6 +178,19 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         elif path == "/api/status":
             results = fan_out("/status")
             self._json(200, {"agents": results, "totals": totals(results)})
+        elif path == "/api/logs":
+            # ?after=<id>:<seq>,<id>:<seq>,...  — per-agent cursors, so each poll
+            # returns only new lines. Omitted agents start from their buffer's tail.
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            cursors = {}
+            for pair in (qs.get("after", [""])[0]).split(","):
+                if ":" in pair:
+                    aid, _, seq = pair.partition(":")
+                    try:
+                        cursors[aid] = int(seq)
+                    except ValueError:
+                        pass
+            self._json(200, collect_logs(cursors))
         else:
             self._json(404, {"error": "not found"})
 

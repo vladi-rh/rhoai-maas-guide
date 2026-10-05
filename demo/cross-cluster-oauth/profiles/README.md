@@ -15,6 +15,6 @@ Each YAML file defines the traffic pattern for one agent category. Profiles are 
 | `pattern` | all | Traffic pattern: `conversational`, `burst`, or `periodic` |
 | `promptTemplate` | all | Prompt sent to the model (placeholder substitution is illustrative — agent sends it as-is) |
 | `thinkTimeMinSec` / `thinkTimeMaxSec` | all | Random pause range between requests or bursts |
-| `burstSize` | `conversational` | Fixed requests per cycle (always 1) |
+| `burstSize` | `conversational` | Fixed requests per iteration (always 1) |
 | `burstSizeMin` / `burstSizeMax` | `burst`, `periodic` | Random burst size range |
 | `pauseAfterBurstSec` | `periodic` | Fixed idle after each burst |
