@@ -61,6 +61,19 @@ else
     check_fail "AuthPolicy: opendatahub.io/managed annotation missing or not 'false' — operator may restore oidc-client-bound and reset model_access"
 fi
 
+# API key ceiling: the only server-ENFORCED bound on key lifetime. Clients pick their own
+# expiresIn and maas-api honours it, so profiles/*.yaml keyTtlSeconds values are advisory;
+# this ceiling is what actually stops a long-lived key. Set by provision-infra.sh.
+KEY_CEILING=$(oc_m get deploy maas-api-agents -n redhat-ai-gateway-infra \
+    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="API_KEY_MAX_EXPIRATION_DAYS")].value}' 2>/dev/null || echo "")
+if [ "${KEY_CEILING:-90}" -le 1 ] 2>/dev/null; then
+    check_pass "API key ceiling: ${KEY_CEILING} day(s)"
+elif [ -n "$KEY_CEILING" ]; then
+    check_warn "API key ceiling is ${KEY_CEILING} days — provision-infra.sh sets 1; was it reverted?"
+else
+    check_warn "API key ceiling not readable on maas-api-agents"
+fi
+
 # AuthPolicy: oidc-client-bound must be removed for per-agent Keycloak clients to work
 OIDC_BOUND=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
     -o jsonpath='{.spec.defaults.rules.authorization.oidc-client-bound}' 2>/dev/null || echo "")

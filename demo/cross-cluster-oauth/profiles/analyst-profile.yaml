@@ -5,3 +5,7 @@ thinkTimeMaxSec: 3
 burstSizeMin: 5
 burstSizeMax: 10
 pauseAfterBurstSec: 30
+
+# Highest request density of the three, so it rotates fastest: 2-minute credentials
+# give the tightest revocation tail in the fleet.
+keyTtlSeconds: 120

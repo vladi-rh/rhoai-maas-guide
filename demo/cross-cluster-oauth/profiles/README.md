@@ -18,3 +18,4 @@ Each YAML file defines the traffic pattern for one agent category. Profiles are 
 | `burstSize` | `conversational` | Fixed requests per iteration (always 1) |
 | `burstSizeMin` / `burstSizeMax` | `burst`, `periodic` | Random burst size range |
 | `pauseAfterBurstSec` | `periodic` | Fixed idle after each burst |
+| `keyTtlSeconds` | all | Lifetime of this group's minted MaaS API key, in seconds. Overrides the `KEY_TTL_SECONDS` env default (300). Capped server-side by the tenant's `maxExpirationDays` (currently 1 day on the agents tenant). |

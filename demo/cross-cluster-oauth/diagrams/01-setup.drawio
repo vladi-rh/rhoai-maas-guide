@@ -28,7 +28,7 @@
         <mxCell id="wsvc1" parent="wns1" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" value="Services: chatbot-1, chatbot-2&#xa;:8080 agent control API" vertex="1">
           <mxGeometry height="50" width="165" x="380" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="wcm1b" parent="wns1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" value="ConfigMaps: agent-profile&#xa;(pattern: conversational)&#xa;+ agent-script (agent.py)" vertex="1">
+        <mxCell id="wcm1b" parent="wns1" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" value="ConfigMaps: agent-profile&#xa;(pattern: conversational, keyTtlSeconds: 300s)&#xa;+ agent-script (agent.py)" vertex="1">
           <mxGeometry height="60" width="165" x="380" y="95" as="geometry" />
         </mxCell>
         <mxCell id="wns2" parent="wc" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="namespace: agents-code-reviewers" vertex="1">
@@ -49,7 +49,7 @@
         <mxCell id="wsvc2" parent="wns2" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" value="Services: reviewer-1, reviewer-2&#xa;:8080 agent control API" vertex="1">
           <mxGeometry height="50" width="165" x="380" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="wcm2b" parent="wns2" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" value="ConfigMaps: agent-profile&#xa;(pattern: burst)&#xa;+ agent-script (agent.py)" vertex="1">
+        <mxCell id="wcm2b" parent="wns2" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" value="ConfigMaps: agent-profile&#xa;(pattern: burst, keyTtlSeconds: 600s)&#xa;+ agent-script (agent.py)" vertex="1">
           <mxGeometry height="60" width="165" x="380" y="95" as="geometry" />
         </mxCell>
         <mxCell id="wns3" parent="wc" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="namespace: agents-business-analysts" vertex="1">
@@ -64,7 +64,7 @@
         <mxCell id="wsvc3" parent="wns3" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" value="Service: analyst-1&#xa;:8080 agent control API" vertex="1">
           <mxGeometry height="50" width="165" x="380" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="wcm3b" parent="wns3" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" value="ConfigMaps: agent-profile&#xa;(pattern: periodic)&#xa;+ agent-script (agent.py)" vertex="1">
+        <mxCell id="wcm3b" parent="wns3" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" value="ConfigMaps: agent-profile&#xa;(pattern: periodic, keyTtlSeconds: 120s)&#xa;+ agent-script (agent.py)" vertex="1">
           <mxGeometry height="60" width="165" x="380" y="95" as="geometry" />
         </mxCell>
         <mxCell id="wns4" parent="wc" style="swimlane;startSize=25;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" value="namespace: agents-console" vertex="1">
@@ -190,7 +190,7 @@
         <mxCell id="llmsvc" parent="llmns" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" value="facebook-opt-125m-simulated-kserve-workload-svc (HTTPS :8000) | model ID: facebook/opt-125m" vertex="1">
           <mxGeometry height="18" width="655" x="10" y="22" as="geometry" />
         </mxCell>
-        <mxCell id="mprov" parent="mc" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=2;" value="provision-infra.sh&#xa;Creates: Gateway, AITenant, Keycloak realm + clients, MaaSAuthPolicy, MaaSSubscription" vertex="1">
+        <mxCell id="mprov" parent="mc" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=2;" value="provision-infra.sh&#xa;Creates: Gateway, AITenant, Keycloak realm + clients, MaaSAuthPolicy, MaaSSubscription&#xa;Caps API key lifetime: MaasTenantConfig maxExpirationDays = 1 day (agents tenant only)&#xa;— the only server-ENFORCED bound; per-group keyTtlSeconds is advisory" vertex="1">
           <mxGeometry height="60" width="300" x="740" y="510" as="geometry" />
         </mxCell>
         <mxCell id="e1" edge="1" parent="mc" source="ait" style="edgeStyle=orthogonalEdgeStyle;rounded=0;fontSize=9;dashed=1;" target="gw" value="creates">

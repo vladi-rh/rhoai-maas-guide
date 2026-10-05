@@ -51,6 +51,14 @@ OIDC_CLIENT_ID="maas-agents"
 MODEL_NAME="facebook-opt-125m-simulated"
 MODEL_NS="llm"
 
+# Hard ceiling on how long an API key minted against THIS tenant may live.
+# This is the only server-enforced bound: clients choose their own expiresIn and maas-api
+# honours it exactly, so the per-agent keyTtlSeconds values in profiles/ are advisory.
+# 1 is the minimum the API allows — maxExpirationDays is day-granular ({"minimum": 1}),
+# so a sub-day enforced ceiling cannot be expressed. Scoped to ai-tenant-agents only;
+# the default tenant keeps its 90-day default.
+API_KEY_MAX_EXPIRATION_DAYS="${API_KEY_MAX_EXPIRATION_DAYS:-1}"
+
 # Agent groups and clients
 REALM_GROUPS=("chatbots" "code-reviewers" "business-analysts")
 declare -A GROUP_CLIENTS=(
@@ -58,6 +66,31 @@ declare -A GROUP_CLIENTS=(
     [code-reviewers]="reviewer-1 reviewer-2"
     [business-analysts]="analyst-1"
 )
+
+# ── Targeting guards — fail loudly rather than touch the wrong tenant ───────
+# Every MaaS tenant on a cluster has a MaasTenantConfig named "default-tenant"; only the
+# namespace distinguishes the agents tenant from the default one. If TENANT_NS were ever
+# empty, `-n ""` would silently fall back to the kubeconfig's current namespace and this
+# script could reconfigure the default tenant (which the corporate-scenario demo relies on).
+# Both are literals today, so this only fires if someone later makes them derived or
+# user-supplied — which is exactly when it is needed.
+if [ -z "${TENANT_NAME:-}" ] || [ -z "${TENANT_NS:-}" ]; then
+    log_error "TENANT_NAME and TENANT_NS must both be non-empty" \
+              "(got TENANT_NAME='${TENANT_NAME:-}' TENANT_NS='${TENANT_NS:-}')"
+    exit 1
+fi
+
+# API_KEY_MAX_EXPIRATION_DAYS is env-overridable and is interpolated raw into a JSON patch
+# body, so a non-numeric value would produce malformed JSON rather than an obvious error.
+case "$API_KEY_MAX_EXPIRATION_DAYS" in
+    ''|*[!0-9]*)
+        log_error "API_KEY_MAX_EXPIRATION_DAYS must be a positive integer (got '${API_KEY_MAX_EXPIRATION_DAYS}')"
+        exit 1 ;;
+esac
+if [ "$API_KEY_MAX_EXPIRATION_DAYS" -lt 1 ]; then
+    log_error "API_KEY_MAX_EXPIRATION_DAYS must be >= 1 — the CRD enforces minimum: 1 (day-granular)"
+    exit 1
+fi
 
 # ════════════════════════════════════════════════════════════════════════
 log_section "Cross-Cluster Agentic Access — Infrastructure Provisioning"
@@ -183,6 +216,42 @@ else
         countdown_tick "$i" 180 "Waiting for AITenant to become Ready"
         sleep 3
     done
+fi
+
+# ── Step 5a: Cap API key lifetime for this tenant ───────────────────────
+# The MaaS operator creates MaasTenantConfig/default-tenant in the tenant namespace once
+# the AITenant reconciles. Lower its ceiling from the 90-day default so a client cannot
+# mint a long-lived key. Idempotent; re-asserted on every run.
+log_detail "Capping API key lifetime at ${API_KEY_MAX_EXPIRATION_DAYS} day(s)..."
+for i in $(seq 60 -3 3); do
+    if oc_m get maastenantconfig default-tenant -n "$TENANT_NS" &>/dev/null; then
+        printf "\r\033[K"
+        break
+    fi
+    countdown_tick "$i" 60 "Waiting for MaasTenantConfig"
+    sleep 3
+done
+
+if oc_m get maastenantconfig default-tenant -n "$TENANT_NS" &>/dev/null; then
+    oc_m patch maastenantconfig default-tenant -n "$TENANT_NS" --type=merge \
+        -p "{\"spec\":{\"apiKeys\":{\"maxExpirationDays\":${API_KEY_MAX_EXPIRATION_DAYS}}}}" \
+        > /dev/null 2>&1 || true
+    # The operator reconciles this onto maas-api-<tenant> as API_KEY_MAX_EXPIRATION_DAYS
+    # and rolls the deployment; keys live in Postgres so the restart is not disruptive.
+    for i in $(seq 20 -1 1); do
+        APPLIED=$(oc_m get deploy "maas-api-${TENANT_NAME}" -n redhat-ai-gateway-infra \
+            -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="API_KEY_MAX_EXPIRATION_DAYS")].value}' \
+            2>/dev/null || echo "")
+        [ "$APPLIED" = "$API_KEY_MAX_EXPIRATION_DAYS" ] && break
+        sleep 3
+    done
+    if [ "${APPLIED:-}" = "$API_KEY_MAX_EXPIRATION_DAYS" ]; then
+        log_info "API key ceiling: ${BOLD}${API_KEY_MAX_EXPIRATION_DAYS} day(s)${NC} (was 90)"
+    else
+        log_warn "API key ceiling patch applied but not yet reconciled (deployment shows '${APPLIED:-unset}')"
+    fi
+else
+    log_warn "MaasTenantConfig not found in ${TENANT_NS} — API key ceiling left at the default"
 fi
 
 # ── Step 5b: Patch AuthPolicy — remove oidc-client-bound ────────────────

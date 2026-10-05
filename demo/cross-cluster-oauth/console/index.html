@@ -398,14 +398,15 @@ function groupHTML(name, list) {
   // so they belong here rather than repeated on every card. Guard anyway: if a profile
   // were edited in-cluster for one agent only, say "mixed" instead of lying.
   const uniq = k => [...new Set(list.map(a => a[k]).filter(Boolean))];
-  const ns = uniq("namespace"), pat = uniq("pattern");
+  const ns = uniq("namespace"), pat = uniq("pattern"), ttl = uniq("key_ttl_seconds");
   const one = v => v.length === 1 ? v[0] : (v.length ? "mixed" : "—");
   return `
   <section class="group" style="--accent:${list[0].color}">
     <div class="group-head">
       <span class="dot"></span>
       <h2>${name}</h2>
-      <span class="gmeta">${one(ns)} · ${one(pat)} · ${running}/${list.length} running${
+      <span class="gmeta">${one(ns)} · ${one(pat)} · key TTL ${
+        ttl.length === 1 ? fmtDur(ttl[0]) : one(ttl)} · ${running}/${list.length} running${
         down ? ` · <span style="color:var(--red)">${down} unreachable</span>` : ""}</span>
       <span class="rule"></span>
     </div>

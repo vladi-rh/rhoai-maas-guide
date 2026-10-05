@@ -40,6 +40,13 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "facebook-opt-125m-simulated")  # K8s 
 PROFILE_PATH = os.environ.get("PROFILE_PATH", "/etc/agent/profile.yaml")
 CONTROL_PORT = int(os.environ.get("CONTROL_PORT", "8080"))
 AUTOSTART = os.environ.get("AUTOSTART", "false").lower() in ("1", "true", "yes")
+# Lifetime of the minted MaaS API key. This value is advisory: maas-api honours whatever the
+# client asks for, exactly, with no floor (request 1s and you get 1s). The only server-ENFORCED
+# bound is the tenant's MaasTenantConfig maxExpirationDays, which provision-infra.sh pins to
+# 1 day for the agents tenant. Shorter means a shorter revocation tail and faster detection of
+# a broken mint path, at the cost of riding out an upstream outage for less time.
+# Per-group overrides live in profiles/*.yaml as keyTtlSeconds.
+KEY_TTL_SECONDS = max(10, int(os.environ.get("KEY_TTL_SECONDS", "300")))
 
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
@@ -222,13 +229,25 @@ def token_info(fetched_at, expires_at, error):
 class ApiKeyManager:
     """Mints a MaaS API key using the JWT, caches it, refreshes before expiry."""
 
-    KEY_TTL_SECONDS = 3600  # 1 hour
-
-    def __init__(self, token_manager):
+    def __init__(self, token_manager, ttl_seconds=None):
         self._tm = token_manager
         self._key = None
         self._expires_at = 0        # refresh deadline (expiry minus a safety margin)
         self._lock = threading.Lock()
+
+        # Precedence: profile keyTtlSeconds > KEY_TTL_SECONDS env > built-in default.
+        # Per-group TTLs let each workload shape carry its own credential lifetime.
+        try:
+            self.ttl_seconds = max(10, int(ttl_seconds)) if ttl_seconds else KEY_TTL_SECONDS
+        except (TypeError, ValueError):
+            log(f"⚠ invalid keyTtlSeconds={ttl_seconds!r}, falling back to {KEY_TTL_SECONDS}s")
+            self.ttl_seconds = KEY_TTL_SECONDS
+
+        # Refresh this long before expiry. Proportional, not a flat 60s: a fixed margin
+        # inverts once the TTL drops to 60 or below (_expires_at lands in the past),
+        # making get_key() miss the cache on every call and mint a key per request.
+        # 10% reproduces the old behaviour at a 3600s TTL while staying safe when short.
+        self.refresh_margin = max(5, min(60, int(self.ttl_seconds * 0.1)))
         # Surfaced on /status so the console can show token health per agent.
         self.fetched_at = None      # epoch of the last successful mint
         self.hard_expires_at = None # epoch the key actually stops being valid
@@ -245,7 +264,7 @@ class ApiKeyManager:
         payload = json.dumps({
             "name": f"agent-{AGENT_ID}-{int(time.time())}",
             "description": f"Auto-minted by {AGENT_ID}",
-            "expiresIn": f"{self.KEY_TTL_SECONDS}s",
+            "expiresIn": f"{self.ttl_seconds}s",
         }).encode()
         req = urllib.request.Request(
             f"{MAAS_URL}/maas-api/v1/api-keys",
@@ -260,11 +279,12 @@ class ApiKeyManager:
                 body = json.loads(resp.read())
             self._key = body["key"]
             now = time.time()
-            self._expires_at = now + self.KEY_TTL_SECONDS - 60
+            self._expires_at = now + self.ttl_seconds - self.refresh_margin
             self.fetched_at = now
-            self.hard_expires_at = now + self.KEY_TTL_SECONDS
+            self.hard_expires_at = now + self.ttl_seconds
             self.last_error = None
-            log(f"🎫 {status_str(201)} API key minted (expires in {self.KEY_TTL_SECONDS}s)")
+            log(f"🎫 {status_str(201)} API key minted "
+                f"(expires in {self.ttl_seconds}s, refresh at -{self.refresh_margin}s)")
             return self._key
         except urllib.error.HTTPError as e:
             self.last_error = f"HTTP {e.code}"
@@ -531,6 +551,7 @@ class ControlHandler(BaseHTTPRequestHandler):
             "running": wanted,
             "jwt": self.tokens.info() if self.tokens else None,
             "api_key": self.keys.info() if self.keys else None,
+            "key_ttl_seconds": self.keys.ttl_seconds if self.keys else None,
             "uptime_seconds": round(time.time() - BOOT_TIME, 1),
         })
         return snap
@@ -580,7 +601,7 @@ def demo_once():
     model = profile.get("model", MODEL_NAME)
     prompt = profile.get("promptTemplate", "Hello, what can you help me with?")
     tm = TokenManager()
-    keys = ApiKeyManager(tm)
+    keys = ApiKeyManager(tm, profile.get("keyTtlSeconds"))
     for attempt in range(3):
         try:
             api_key = keys.get_key()
@@ -624,7 +645,7 @@ def main():
         sys.exit(1)
 
     tm = TokenManager()
-    keys = ApiKeyManager(tm)
+    keys = ApiKeyManager(tm, profile.get("keyTtlSeconds"))
     threading.Thread(target=premint, args=(keys,), daemon=True).start()
 
     worker = Worker(profile, keys, model)

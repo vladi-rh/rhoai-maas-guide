@@ -64,6 +64,12 @@ declare -A GROUP_PROFILE=(
 
 
 CONTROL_PORT=8080
+# Lifetime of each agent's minted MaaS API key. Shorter = shorter revocation tail and
+# faster detection if minting breaks; longer = rides out an upstream outage for longer.
+# maas-api imposes no minimum and honours this value exactly, so it is advisory; the only
+# enforced cap is the tenant's maxExpirationDays, set to 1 day by provision-infra.sh.
+# Per-group overrides: keyTtlSeconds in profiles/*.yaml.
+KEY_TTL_SECONDS="${KEY_TTL_SECONDS:-300}"
 
 # Hash the agent script into the pod template so a code change triggers a rollout.
 # (A ConfigMap update alone does not restart pods.)
@@ -104,11 +110,13 @@ for group in "${!AGENT_GROUPS[@]}"; do
     oc_w label namespace "$ns" demo=cross-cluster-oauth --overwrite > /dev/null 2>&1 || true
 
 
-    # Profile: create if not present, leave existing as-is (may be hand-tuned in-cluster)
-    log_info "Creating behavior profile ConfigMap in $ns"
-    oc_w get configmap agent-profile -n "$ns" &>/dev/null || \
-        oc_w create configmap agent-profile -n "$ns" \
-            --from-file=profile.yaml="${DIR}/profiles/${profile}"
+    # Profile: always re-apply. It used to be create-if-missing so in-cluster hand-tuning
+    # survived, but that silently blocks new profile keys (keyTtlSeconds) from ever
+    # reaching an existing namespace. The repo is the source of truth; re-run to re-assert.
+    log_info "Applying behavior profile ConfigMap in $ns"
+    oc_w create configmap agent-profile -n "$ns" \
+        --from-file=profile.yaml="${DIR}/profiles/${profile}" \
+        --dry-run=client -o yaml | oc_w apply -f - > /dev/null
 
     # Script: always re-apply — it is code, and the repo is the source of truth
     log_info "Applying agent script ConfigMap in $ns"
@@ -124,6 +132,10 @@ log_step 3 "Deploying agent pods"
 
 for group in "${!AGENT_GROUPS[@]}"; do
     ns="${GROUP_NS[$group]}"
+    # Pod template hash must cover the profile too, not just agent.py — otherwise a
+    # changed keyTtlSeconds updates the ConfigMap but never restarts the pod that
+    # reads it at boot, and the change silently does nothing.
+    POD_HASH="${SCRIPT_HASH}$(file_hash "${DIR}/profiles/${GROUP_PROFILE[$group]}")"
     for client_id in ${AGENT_GROUPS[$group]}; do
         log_info "Fetching client secret for $client_id"
         CLIENT_SECRET=$(get_client_secret "$client_id" "$ADMIN_TOKEN")
@@ -156,7 +168,7 @@ spec:
   template:
     metadata:
       annotations:
-        agent-script-hash: "${SCRIPT_HASH}"
+        agent-pod-hash: "${POD_HASH}"
       labels:
         app: maas-agent
         demo: cross-cluster-oauth
@@ -186,6 +198,8 @@ spec:
               value: "${CONTROL_PORT}"
             - name: AUTOSTART
               value: "false"
+            - name: KEY_TTL_SECONDS
+              value: "${KEY_TTL_SECONDS}"
             - name: CLIENT_ID
               valueFrom:
                 secretKeyRef:

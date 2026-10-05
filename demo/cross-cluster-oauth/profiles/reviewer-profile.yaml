@@ -4,3 +4,7 @@ thinkTimeMinSec: 10
 thinkTimeMaxSec: 30
 burstSizeMin: 3
 burstSizeMax: 5
+
+# Bursty workload that idles between bursts, so a longer-lived key costs little;
+# 10 minutes keeps minting infrequent without stretching the revocation window far.
+keyTtlSeconds: 600

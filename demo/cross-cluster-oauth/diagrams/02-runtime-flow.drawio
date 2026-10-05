@@ -19,7 +19,7 @@
         <mxCell id="s1cm" parent="s1box" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" value="POST :8080/start&#xa;from the agent console or start-agents.sh&#xa;&#xa;Pod runs permanently and sits IDLE until this&#xa;arrives — no restart, no token re-mint.&#xa;Repeats its pattern until /stop." vertex="1">
           <mxGeometry height="82" width="230" x="15" y="28" as="geometry" />
         </mxCell>
-        <mxCell id="s1prof" parent="s1box" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="ConfigMap: agent-profile&#xa;pattern: conversational&#xa;thinkTimeMin: 3s, Max: 8s" vertex="1">
+        <mxCell id="s1prof" parent="s1box" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="ConfigMap: agent-profile&#xa;pattern: conversational&#xa;thinkTimeMin: 3s, Max: 8s&#xa;keyTtlSeconds: 300  (per-group: chatbots 300s, reviewers 600s, analysts 120s)" vertex="1">
           <mxGeometry height="82" width="210" x="260" y="28" as="geometry" />
         </mxCell>
         <mxCell id="s2box" parent="wc" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" value="② Token Mint — Agent calls Keycloak" vertex="1">
@@ -34,10 +34,10 @@
         <mxCell id="s3box" parent="wc" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" value="③ API Key Mint — Agent calls MaaS gateway" vertex="1">
           <mxGeometry height="200" width="490" x="20" y="480" as="geometry" />
         </mxCell>
-        <mxCell id="s3req" parent="s3box" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;" value="POST https://agents-maas.apps.&lt;domain&gt;/maas-api/v1/api-keys&#xa;&#xa;Headers:&#xa;  Authorization: Bearer &lt;JWT&gt;&#xa;  Content-Type: application/json&#xa;&#xa;Body:&#xa;  {name: agent-chatbot-1-..., expiresIn: 3600s}" vertex="1">
+        <mxCell id="s3req" parent="s3box" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;" value="POST https://agents-maas.apps.&lt;domain&gt;/maas-api/v1/api-keys&#xa;&#xa;Headers:&#xa;  Authorization: Bearer &lt;JWT&gt;&#xa;  Content-Type: application/json&#xa;&#xa;Body:&#xa;  {name: agent-chatbot-1-..., expiresIn: 300s}   ← from this group&#39;s keyTtlSeconds" vertex="1">
           <mxGeometry height="110" width="460" x="15" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="s3resp" parent="s3box" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="← Response: {key: sk-oai-xxxx, subscription: agents-chatbots-tier}&#xa;(API key cached for 1 hour)" vertex="1">
+        <mxCell id="s3resp" parent="s3box" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" value="← Response: {key: sk-oai-xxxx, subscription: agents-chatbots-tier}&#xa;(cached for this group&#39;s keyTtlSeconds — 300s for chatbots)" vertex="1">
           <mxGeometry height="35" width="460" x="15" y="155" as="geometry" />
         </mxCell>
         <mxCell id="s4box" parent="wc" style="swimlane;startSize=25;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" value="④ Inference Call — Agent calls model via gateway" vertex="1">
@@ -55,7 +55,7 @@
         <mxCell id="s5log" parent="s5box" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;align=left;" value="Agent logs (pod stdout):&#xa;[21:05:59] 💬 [200] 0.40s | conversational | tokens: 37&#xa;&#xa;Counters also update on :8080/status — requests, tokens, 2xx vs 4xx/5xx, uptime" vertex="1">
           <mxGeometry height="70" width="460" x="15" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="s5wait" parent="s5box" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" value="Waits thinkTime (random 3-8s) then loops back to ④&#xa;Token auto-refreshed 30s before expiry (every ~4.5min)&#xa;API key cached 1 hour — reused across inference calls" vertex="1">
+        <mxCell id="s5wait" parent="s5box" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" value="Waits thinkTime (random 3-8s) then loops back to ④&#xa;JWT auto-refreshed 30s before expiry (every ~4.5min)&#xa;API key cached for keyTtlSeconds, re-minted at -10% (300s → refresh at -30s)&#xa;⚠ server ceiling is the only enforced bound: maxExpirationDays = 1 day" vertex="1">
           <mxGeometry height="50" width="460" x="15" y="110" as="geometry" />
         </mxCell>
         <mxCell id="ef1" edge="1" parent="wc" source="s1box" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#6c8ebf;strokeWidth=2;" target="s2box" value="">
@@ -115,7 +115,7 @@
         <mxCell id="s3gw3" parent="s3gw" style="text;html=1;fontSize=10;" value="   • Fetches JWKS from agent-realm (cached 300s) → validates signature" vertex="1">
           <mxGeometry height="18" width="650" x="15" y="75" as="geometry" />
         </mxCell>
-        <mxCell id="s3gw4" parent="s3gw" style="text;html=1;fontSize=10;" value="   • Checks aud contains maas-agents ✓ | Checks issuer matches ✓" vertex="1">
+        <mxCell id="s3gw4" parent="s3gw" style="text;html=1;fontSize=10;" value="   • Checks issuer matches ✓  |  ⚠ aud is NOT checked — no &#39;audiences&#39; set on oidc-identities" vertex="1">
           <mxGeometry height="18" width="650" x="15" y="93" as="geometry" />
         </mxCell>
         <mxCell id="s3gw5" parent="s3gw" style="text;html=1;fontSize=11;" value="3. Routes to maas-api-agents (/maas-api/* → maas-api-route-agents HTTPRoute)" vertex="1">
@@ -199,10 +199,10 @@
         <mxCell id="rev_note" parent="mc" style="swimlane;startSize=22;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" value="Revocation" vertex="1">
           <mxGeometry height="110" width="680" x="20" y="1300" as="geometry" />
         </mxCell>
-        <mxCell id="rev1" parent="rev_note" style="text;html=1;fontSize=11;" value="Per-agent: delete/disable Keycloak client → no new tokens → locked out within JWT TTL (5min)" vertex="1">
+        <mxCell id="rev1" parent="rev_note" style="text;html=1;fontSize=11;" value="Per-agent: delete/disable Keycloak client → stops NEW keys, but the cached API key keeps working&#xa;⚠ lockout is bounded by that group&#39;s keyTtlSeconds (120–600s here), NOT the 5min JWT TTL&#xa;— inference validates sk-oai-* at maas-api, never at Keycloak" vertex="1">
           <mxGeometry height="20" width="650" x="15" y="28" as="geometry" />
         </mxCell>
-        <mxCell id="rev2" parent="rev_note" style="text;html=1;fontSize=11;" value="Per-group: delete MaaSAuthPolicy or MaaSSubscription for that group → 403 on next call" vertex="1">
+        <mxCell id="rev2" parent="rev_note" style="text;html=1;fontSize=11;" value="Per-group: delete MaaSSubscription → 403 on next call (subscription-valid runs per request)&#xa;⚠ deleting MaaSAuthPolicy does nothing here — managed=false leaves those CRs Pending/inert; model_access is injected by hand" vertex="1">
           <mxGeometry height="20" width="650" x="15" y="52" as="geometry" />
         </mxCell>
         <mxCell id="rev3" parent="rev_note" style="text;html=1;fontSize=11;" value="Entire tenant: delete AITenant → all agents lose access" vertex="1">
