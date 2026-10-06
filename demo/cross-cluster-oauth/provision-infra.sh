@@ -254,10 +254,17 @@ else
     log_warn "MaasTenantConfig not found in ${TENANT_NS} — API key ceiling left at the default"
 fi
 
-# ── Step 5b: Patch AuthPolicy — remove oidc-client-bound ────────────────
-# MaaS operator generates oidc-client-bound rule (azp == clientId) which blocks
-# per-agent Keycloak clients. Annotate as unmanaged and remove the rule so
-# individual agent clients (chatbot-1, reviewer-1, etc.) can authenticate.
+# ── Step 5b: Patch AuthPolicy — narrow it to the agent clients ──────────
+# The MaaS operator generates an oidc-client-bound rule pinned to a single client
+# (azp == spec.oidc.clientId, i.e. maas-agents). Every per-agent token carries its own
+# azp (chatbot-1, reviewer-1, ...), so the operator's single-value form 403s the whole
+# fleet. This narrows it to an allowlist of exactly our clients instead of deleting it.
+#
+# Deleting it outright (the previous behaviour) left azp unchecked entirely. The comment
+# that justified that — "aud already proves the token is for this gateway" — is wrong twice
+# over: the policy sets no `audiences` on oidc-identities so aud is never validated, and the
+# audience mapper lives on the realm's default `roles` scope, so every client in the realm
+# gets the same aud anyway. aud cannot distinguish one client from another here.
 log_detail "Patching AuthPolicy to allow per-agent Keycloak clients..."
 AUTH_POLICY="agents-maas-gateway-maas-auth"
 for i in $(seq 60 -3 3); do
@@ -274,11 +281,57 @@ if oc_m get authpolicy "$AUTH_POLICY" -n openshift-ingress &>/dev/null; then
     oc_m annotate authpolicy "$AUTH_POLICY" -n openshift-ingress \
         opendatahub.io/managed=false --overwrite > /dev/null
 
-    # 2. Remove oidc-client-bound rule (blocks per-agent clients)
+    # 2. Replace oidc-client-bound with a regex allowlist of our agent clients.
+    #    The regex is built from GROUP_CLIENTS so it cannot drift from the clients this
+    #    script actually creates. Anchored, so chatbot-1x / xchatbot-1 do not match.
+    AGENT_CLIENT_RE="^($(printf '%s|' ${GROUP_CLIENTS[@]} | sed 's/|$//'))$"
+
+    #    Built in Python, not hand-written JSON: the operator's `when` predicate contains
+    #    nested quotes and double-escaped backslashes that shell quoting mangles easily.
+    #    metrics/priority/when are byte-identical to the operator's own rule; only
+    #    patternMatching differs (operator: matches + allowlist, vs eq + single client).
+    #    JSON-patch `add` (not `replace`) so this works whether the rule is currently
+    #    absent — as it is on a cluster provisioned by the previous version of this
+    #    script — or present, as on a fresh install where the operator just generated it.
+    OCB_PATCH=$(AGENT_RE="$AGENT_CLIENT_RE" python3 -c '
+import json, os
+rule = {
+  "metrics": False,
+  "priority": 1,
+  "when": [{"predicate":
+      "!request.headers.authorization.startsWith(\"Bearer sk-oai-\") && "
+      "request.headers.authorization.matches(\"^Bearer [^.]+\\\\.[^.]+\\\\.[^.]+$\") && "
+      "has(auth.identity.azp)"}],
+  "patternMatching": {"patterns": [
+      {"selector": "auth.identity.azp", "operator": "matches",
+       "value": os.environ["AGENT_RE"]}]},
+}
+print(json.dumps([{"op": "add",
+  "path": "/spec/defaults/rules/authorization/oidc-client-bound", "value": rule}]))')
     oc_m patch authpolicy "$AUTH_POLICY" -n openshift-ingress \
-        --type=json -p='[{"op":"remove","path":"/spec/defaults/rules/authorization/oidc-client-bound"}]' \
+        --type=json -p "$OCB_PATCH" > /dev/null
+    log_info "AuthPolicy patched — oidc-client-bound restricted to ${BOLD}${AGENT_CLIENT_RE}${NC}"
+
+    # 2b. Drop the openshift-identities authentication rule.
+    #     Without this, any OpenShift token (including a zero-RBAC ServiceAccount's)
+    #     authenticates at this gateway and is only stopped later by maas-api, which
+    #     returns 400 invalid_subscription. That match is by bare group-name string
+    #     regardless of identity provider, so an OpenShift Group coincidentally named
+    #     e.g. "chatbots" would grant mint rights. Removing the rule closes it at the
+    #     door with a 401 instead.
+    #
+    #     Safe here: agents use Keycloak client-credentials JWTs, run-demo.sh execs
+    #     agent.py in-pod (also Keycloak), check-gateway-wasm.sh expects 401/403 anyway,
+    #     and the key-cleanup CronJobs bypass the gateway entirely (they curl the
+    #     maas-api-agents Service directly). Trade-off: `oc whoami -t` can no longer be
+    #     used to poke this gateway by hand.
+    #
+    #     AGENTS GATEWAY ONLY — the default gateway's corporate demo depends on
+    #     OpenShift identities (corp-* and maas-demo-users subscriptions).
+    oc_m patch authpolicy "$AUTH_POLICY" -n openshift-ingress \
+        --type=json -p='[{"op":"remove","path":"/spec/defaults/rules/authentication/openshift-identities"}]' \
         > /dev/null 2>&1 || true
-    log_info "AuthPolicy patched — oidc-client-bound removed"
+    log_info "AuthPolicy patched — openshift-identities authentication removed"
 
     # 3. Populate model_access in require-group-membership rego.
     #    managed=false prevents the operator from doing this via MaaSAuthPolicy,

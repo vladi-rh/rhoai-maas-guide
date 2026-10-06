@@ -74,20 +74,56 @@ else
     check_warn "API key ceiling not readable on maas-api-agents"
 fi
 
-# AuthPolicy: oidc-client-bound must be removed for per-agent Keycloak clients to work
-OIDC_BOUND=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
-    -o jsonpath='{.spec.defaults.rules.authorization.oidc-client-bound}' 2>/dev/null || echo "")
-if [ -z "$OIDC_BOUND" ]; then
-    check_pass "AuthPolicy: oidc-client-bound removed (per-agent clients allowed)"
+# AuthPolicy: oidc-client-bound must be present AND narrowed to an allowlist of our agent
+# clients. Two distinct failures to tell apart: the rule missing entirely (azp unchecked —
+# any realm client can mint), and the rule reverted to the operator's single-value
+# `eq maas-oidc` form (403s the whole fleet). provision-infra.sh Step 5b sets this.
+EXPECTED_CLIENTS="chatbot-1 chatbot-2 reviewer-1 reviewer-2 analyst-1"
+OCB_STATE=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress -o json 2>/dev/null | \
+    EXPECTED="$EXPECTED_CLIENTS" python3 -c "
+import sys, json, os
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print('unreadable'); raise SystemExit
+s = d.get('spec', {}); s = s.get('defaults', s)
+rule = s.get('rules', {}).get('authorization', {}).get('oidc-client-bound')
+if not rule:
+    print('absent'); raise SystemExit
+pats = rule.get('patternMatching', {}).get('patterns', [])
+if not pats:
+    print('malformed'); raise SystemExit
+p = pats[0]
+if p.get('operator') != 'matches':
+    print('operator:%s:%s' % (p.get('operator'), p.get('value'))); raise SystemExit
+val = p.get('value', '')
+missing = [c for c in os.environ['EXPECTED'].split() if c not in val]
+print('missing:' + ','.join(missing) if missing else 'ok:' + val)
+" 2>/dev/null || echo "unreadable")
+case "$OCB_STATE" in
+    ok:*)        check_pass "AuthPolicy: oidc-client-bound allowlists the 5 agent clients" ;;
+    absent)      check_fail "AuthPolicy: oidc-client-bound missing — azp is unchecked, any agent-realm client could mint. Re-run ./provision-infra.sh" ;;
+    operator:*)  check_fail "AuthPolicy: oidc-client-bound reverted to operator form (${OCB_STATE#operator:}) — agents will 403 on mint. Re-run ./provision-infra.sh" ;;
+    missing:*)   check_fail "AuthPolicy: oidc-client-bound allowlist is missing client(s): ${OCB_STATE#missing:}" ;;
+    *)           check_warn "AuthPolicy: could not evaluate oidc-client-bound (${OCB_STATE})" ;;
+esac
+
+# AuthPolicy: openshift-identities must be gone, so an arbitrary OpenShift token (e.g. a
+# zero-RBAC ServiceAccount) is rejected at the gateway with 401 rather than authenticating
+# and being stopped later by maas-api. Agents gateway only — the default gateway keeps it.
+AUTHN_RULES=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
+    -o jsonpath='{.spec.defaults.rules.authentication}' 2>/dev/null || echo "")
+if echo "$AUTHN_RULES" | grep -q 'openshift-identities'; then
+    check_fail "AuthPolicy: openshift-identities still present — any OpenShift token authenticates here. Re-run ./provision-infra.sh"
 else
-    check_fail "AuthPolicy: oidc-client-bound still present — agents will get 403 on API key mint. Run: ./patch-authpolicy.sh --patch --maas-context ${MAAS_CTX}"
+    check_pass "AuthPolicy: openshift-identities removed (OpenShift tokens rejected at the gateway)"
 fi
 
 # AuthPolicy: model_access must be populated (managed=false prevents operator from doing it)
 MODEL_ACCESS_REGO=$(oc_m get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
     -o jsonpath='{.spec.defaults.rules.authorization.require-group-membership.opa.rego}' 2>/dev/null || echo "")
 if echo "$MODEL_ACCESS_REGO" | grep -q 'model_access := {}'; then
-    check_fail "AuthPolicy: model_access is empty — agents will get 403 on inference. Run: ./patch-authpolicy.sh --patch --maas-context ${MAAS_CTX}"
+    check_fail "AuthPolicy: model_access is empty — agents will get 403 on inference. Re-run ./provision-infra.sh"
 elif echo "$MODEL_ACCESS_REGO" | grep -q 'model_access'; then
     check_pass "AuthPolicy: model_access populated (group-to-model mappings present)"
 else

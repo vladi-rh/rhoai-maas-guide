@@ -19,25 +19,64 @@ without affecting others. The agents use `client_credentials` grant (no human us
 and each agent's JWT carries `azp: "<its-own-client-id>"` (e.g. `azp: "chatbot-1"`).
 
 The `oidc-client-bound` rule checks `azp == "maas-agents"` and rejects every per-agent token
-because their `azp` is the agent's own client ID, not the shared one. The audience claim (`aud`)
-already contains `maas-agents` (via Keycloak's audience mapper), which is sufficient to prove
-the token is intended for this gateway — the `azp` check is redundant in this pattern and must
-be removed.
+because their `azp` is the agent's own client ID, not the shared one. The rule therefore cannot
+stay in its operator-generated form — but it must be **narrowed, not deleted**.
 
-## The Workaround: Two-Part AuthPolicy Patch
+> **Correction.** An earlier version of this document argued the rule was redundant because
+> "the audience claim (`aud`) already contains `maas-agents` via Keycloak's audience mapper,
+> which is sufficient to prove the token is intended for this gateway." That is wrong on two
+> counts, both verified against the live policy and realm:
+>
+> 1. **`aud` is never validated.** The `oidc-identities` authentication block sets only
+>    `issuerUrl` and `ttl` — there is no `audiences` key, so the audience claim is not checked
+>    at all.
+> 2. **`aud` could not distinguish clients even if it were checked.** The audience mapper sits
+>    on the realm's default `roles` scope, so *every* client in `agent-realm` receives
+>    `aud: maas-agents`.
+>
+> Deleting the rule left `azp` unchecked entirely, meaning any client in the realm — including
+> one created later for an unrelated purpose — satisfied it. The fix is an allowlist.
 
-### Part 1: Remove `oidc-client-bound`
+## The Workaround: Three-Part AuthPolicy Patch
+
+### Part 1: Narrow `oidc-client-bound` to an allowlist
 
 Annotate the AuthPolicy as `opendatahub.io/managed=false` to prevent the MaaS operator from
-restoring the rule, then remove it:
+restoring its single-client rule, then replace the rule with a regex allowlist of the agent
+clients. `provision-infra.sh` (Step 5b) does this automatically and builds the regex from its
+own `GROUP_CLIENTS` map so it cannot drift; the shape it applies is:
+
+```yaml
+oidc-client-bound:
+  metrics: false
+  priority: 1
+  when:                       # byte-identical to the operator's own predicate
+  - predicate: '!request.headers.authorization.startsWith("Bearer sk-oai-") && ...'
+  patternMatching:
+    patterns:
+    - selector: auth.identity.azp
+      operator: matches       # operator generates `eq` with a single value
+      value: ^(chatbot-1|chatbot-2|reviewer-1|reviewer-2|analyst-1)$
+```
+
+Applied with JSON-patch `add` rather than `replace`, so it works whether the rule is currently
+absent (clusters provisioned before this change) or present (fresh install, operator-generated).
+
+### Part 1b: Remove `openshift-identities`
+
+Without this, any OpenShift token — including a zero-RBAC ServiceAccount's — authenticates at
+this gateway and is only stopped later by `maas-api`, which returns `400 invalid_subscription`.
+That match is on the bare group-name string regardless of which identity provider asserted it,
+so an OpenShift Group coincidentally named e.g. `chatbots` would grant mint rights.
 
 ```bash
-oc annotate authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
-    opendatahub.io/managed=false --overwrite
-
 oc patch authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
-    --type=json -p='[{"op":"remove","path":"/spec/defaults/rules/authorization/oidc-client-bound"}]'
+    --type=json -p='[{"op":"remove","path":"/spec/defaults/rules/authentication/openshift-identities"}]'
 ```
+
+**Agents gateway only.** The default gateway's corporate demo depends on OpenShift identities
+(`corp-*` and `maas-demo-users` subscriptions). The trade-off here is that `oc whoami -t` can no
+longer be used to poke the agents gateway by hand.
 
 ### Part 2: Populate `model_access` (the hidden consequence)
 
@@ -100,7 +139,15 @@ structure that MaaS uses for inference routing (`/llm/facebook-opt-125m-simulate
 oc get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress \
     -o jsonpath='{.spec.defaults.rules.authorization.require-group-membership.opa.rego}' \
     | head -10
+
+# Policy shape: expect authn WITHOUT openshift-identities, and an azp rule using `matches`
+oc get authpolicy agents-maas-gateway-maas-auth -n openshift-ingress -o json \
+  | python3 -c "import json,sys; s=json.load(sys.stdin)['spec']; s=s.get('defaults',s); \
+      print('authn:', list(s['rules']['authentication'])); \
+      print('azp  :', s['rules']['authorization'].get('oidc-client-bound',{}).get('patternMatching'))"
 ```
+
+`readiness-check.sh` asserts all three automatically.
 
 ## MaaSAuthPolicy Status
 
@@ -123,6 +170,11 @@ that simplicity for individually revocable agent identities.
 
 ## Scripts
 
-- `provision-infra.sh` — step 5b applies both parts automatically
-- `patch-authpolicy.sh --patch` — applies both parts (for debugging/re-applying)
-- `patch-authpolicy.sh --unpatch` — removes `managed=false`, lets operator restore everything
+- `provision-infra.sh` — step 5b applies all three parts automatically, and is idempotent, so
+  re-running it is the supported way to re-assert the policy after a drift or a reversion
+- `readiness-check.sh` — asserts the resulting shape (allowlist present and correct,
+  `openshift-identities` absent, `model_access` populated)
+
+To hand back control to the operator, remove the `opendatahub.io/managed=false` annotation; it
+will restore its own single-client `oidc-client-bound` and reset `model_access`, which 403s the
+fleet. Every patch here survives only while that annotation is set.
