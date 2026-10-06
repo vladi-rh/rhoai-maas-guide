@@ -149,6 +149,38 @@ check_gateway_wasm() {
             check_fail "Gateway ${gw}: Deployment not found — cannot auto-fix"
             return 1
         fi
+        # Precondition: the wasm binary must actually be served right now. Envoy fetches it
+        # once at boot and never retries, so restarting while kuadrant-operator is down just
+        # re-creates the same fail-closed state — the rollout "succeeds" and the gateway is
+        # still broken. The Service loses its endpoints the moment the operator pod goes
+        # unready, which is a cheap and exact readiness signal.
+        #
+        # After a cluster restart the operator crashloops for a while (reconcile storm pegs
+        # its 200m CPU limit, the throttled process misses its 1s liveness probe, SIGKILL,
+        # repeat), so this window is common rather than rare — wait it out.
+        wasm_ready() {
+            local ep
+            ep=$(oc --context="$ctx" get endpoints kuadrant-operator-wasm \
+                 -n openshift-operators -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
+            [ -n "$ep" ]
+        }
+        if ! wasm_ready; then
+            echo ""
+            log_warn "kuadrant-operator-wasm has no endpoints — plugin.wasm is not being served."
+            log_detail "    Restarting now would land in the same down-window. Waiting up to 5 min..."
+            for i in $(seq 1 60); do
+                sleep 5
+                wasm_ready && break
+            done
+            if ! wasm_ready; then
+                check_fail "Gateway ${gw}: not restarting — kuadrant-operator is still not serving plugin.wasm"
+                log_detail "    The operator is likely crashlooping. Check it, then re-run with --fix:"
+                log_detail "    oc --context=${ctx} get pods -n openshift-operators -l control-plane=controller-manager"
+                return 1
+            fi
+            log_info "wasm endpoint is back — proceeding"
+        fi
+
         echo ""
         log_info "Restarting ${deploy} to re-fetch the wasm binary..."
         oc --context="$ctx" rollout restart "$deploy" -n "$GATEWAY_NS" > /dev/null
