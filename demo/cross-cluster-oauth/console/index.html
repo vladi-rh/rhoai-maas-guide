@@ -96,6 +96,14 @@ button.danger  { background: var(--red);   border-color: var(--red);   color: #2
   border-radius: 8px; padding: 14px 16px;
 }
 .card.unreachable { opacity: .55; }
+/* Two things pulse on a rejected key, in step: the LAST status tile and the
+   KEY row's error text — hence an unscoped class both can share. Blinks only
+   while the status is genuinely an error, and no timer drives it: the next 2xx
+   re-render simply drops the class. An earlier version pulsed the whole card
+   instead, which read as an alarm for something already recovered from. */
+@keyframes lastErrBlink { 50% { opacity: .25; } }
+.blink { animation: lastErrBlink .7s steps(1, end) infinite; }
+.rejcount { font-size: 10px; color: var(--comment); letter-spacing: .5px; }
 .card-head { display: flex; align-items: center; gap: 9px; margin-bottom: 2px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; }
 .name { font-weight: 700; font-size: 15px; }
@@ -110,12 +118,20 @@ button.danger  { background: var(--red);   border-color: var(--red);   color: #2
 .badge.unreachable,
 .badge.error       { color: var(--red); }
 .creds { margin: 2px 0 11px; }
-.cred { display: flex; align-items: baseline; gap: 7px; font-size: 11px; line-height: 1.7; }
-.cred .ci { width: 13px; }
-.cred .cl { color: var(--comment); width: 26px; font-weight: 700; letter-spacing: .5px; }
-.cred .cv { font-weight: 600; }
+/* One line, always. Without nowrap the value wrapped under the JWT/KEY label
+   whenever it grew ("failed · revoked" is longer than "valid 3m46s"), so the
+   row changed height and the text moved — exactly when you are trying to read
+   it. The value keeps its slot right after the label and never shrinks; the
+   age is what gives way, truncating on a narrow card. */
+.cred { display: flex; align-items: baseline; gap: 7px; font-size: 11px;
+        line-height: 1.7; white-space: nowrap; }
+.cred .ci { width: 13px; flex: none; }
+.cred .cl { color: var(--comment); width: 26px; flex: none;
+            font-weight: 700; letter-spacing: .5px; }
+.cred .cv { font-weight: 600; flex: none; }
 .cred .cv.dim { color: var(--comment); font-weight: 400; }
-.cred .cage { color: var(--comment); margin-left: auto; }
+.cred .cage { color: var(--comment); margin-left: auto; padding-left: 7px;
+              flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Toggle switch */
 .toggle { margin-left: auto; position: relative; width: 44px; height: 24px; flex: none; }
@@ -314,7 +330,9 @@ function credRow(icon, label, c, opts = {}) {
   const row = (body) => `<div class="cred" title="${esc(opts.title || "")}">` +
     `<span class="ci">${icon}</span><span class="cl">${label}</span>${body}</div>`;
   if (!c) return row(`<span class="cv dim">—</span>`);
-  if (c.error) return row(`<span class="cv" style="color:var(--red)">failed · ${esc(c.error)}</span>`);
+  // Same .blink as the LAST status tile, so the two red things on the card
+  // pulse together and read as one event rather than two separate alarms.
+  if (c.error) return row(`<span class="cv blink" style="color:var(--red)">failed · ${esc(c.error)}</span>`);
   if (c.ttl_s == null) return row(`<span class="cv dim">not fetched yet</span>`);
 
   const col  = c.ttl_s <= 0 ? "var(--red)"
@@ -332,12 +350,22 @@ function cardHTML(a) {
   const checked = a.running ? "checked" : "";
   const disabled = (!a.reachable || busy.has(a.agent_id)) ? "disabled" : "";
 
+  // Blink purely off the last status being an error. No timer and no extra
+  // state: it starts when a call fails and stops by itself on the next 2xx,
+  // because that re-render drops the class. The agent holds a rejected status
+  // for AUTH_RETRY_PAUSE_S, which is what gives this time to be seen at all.
+  const lastErr = a.last_status != null && !(a.last_status >= 200 && a.last_status < 300);
+  const rejections = (a.api_key && a.api_key.rejections) || 0;
+
   return `
   <div class="card ${a.reachable ? "" : "unreachable"}" style="--accent:${a.color}">
     <div class="card-head">
       <span class="dot"></span>
       <span class="name">${a.agent_id}</span>
       <span class="badge ${state}">${state}</span>
+      ${rejections ? `<span class="rejcount"
+        title="Keys revoked out from under this agent since it started. It detected the
+        403, discarded the key and minted a replacement each time.">↻${rejections}</span>` : ""}
       <label class="toggle">
         <input type="checkbox" data-agent="${a.agent_id}" ${checked} ${disabled}>
         <span class="slider"></span>
@@ -360,8 +388,8 @@ function cardHTML(a) {
       <div class="stat"><div class="k">4xx</div><div class="v ${a.client_err ? "c4" : ""}">${fmtNum(a.client_err)}</div></div>
       <div class="stat"><div class="k">5xx</div><div class="v ${a.server_err ? "c5" : ""}">${fmtNum(a.server_err)}</div></div>
       <div class="stat"><div class="k">Last</div>
-        <div class="v" style="color:${a.last_status == null ? "var(--comment)"
-          : a.last_status >= 200 && a.last_status < 300 ? "var(--green)" : "var(--red)"}">
+        <div class="v ${lastErr ? "blink" : ""}" style="color:${a.last_status == null ? "var(--comment)"
+          : lastErr ? "var(--red)" : "var(--green)"}">
           ${a.last_status ?? "—"}</div></div>
     </div>
 

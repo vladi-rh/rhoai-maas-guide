@@ -48,6 +48,42 @@ AUTOSTART = os.environ.get("AUTOSTART", "false").lower() in ("1", "true", "yes")
 # Per-group overrides live in profiles/*.yaml as keyTtlSeconds.
 KEY_TTL_SECONDS = max(10, int(os.environ.get("KEY_TTL_SECONDS", "300")))
 
+# Reacting to a revoked key.
+#
+# The key cache is refreshed on time alone, so without this a revoked key is
+# retried until its TTL runs out -- ten minutes of 403s for a 600s reviewer.
+# 401/403 now drop the cached key and re-mint once, which recovers on the very
+# next request: a new key is a new entry in the gateway's auth cache, so the
+# 60s TTL on the old decision does not delay it.
+#
+# 429 is deliberately NOT in this set. Rate limits are counted per subscription,
+# not per key, so minting a replacement cannot help -- it would just burn rows.
+AUTH_FAIL_STATUSES = (401, 403)
+
+# ... and the guard against that recovery becoming a mint storm. A 403 does not
+# only mean "revoked"; if the cause is persistent (a policy denial, a disabled
+# subscription) an unguarded re-mint would issue a brand-new key on every single
+# request. Nothing prunes expired keys -- the cleanup CronJob only deletes rows
+# with ephemeral=true, which nothing here sets -- so that turns a slow leak into
+# a flood. After this many consecutive failures the agent stops calling instead.
+AUTH_FAIL_THRESHOLD = max(1, int(os.environ.get("AUTH_FAIL_THRESHOLD", "3")))
+
+# Escalating, so a permanently dead agent backs off instead of polling forever:
+# 30s, 60s, 120s, 240s, capped. Any success resets it.
+AUTH_COOLDOWN_BASE = max(5, int(os.environ.get("AUTH_COOLDOWN_BASE", "30")))
+AUTH_COOLDOWN_MAX = max(AUTH_COOLDOWN_BASE, int(os.environ.get("AUTH_COOLDOWN_MAX", "300")))
+
+# Deliberate pause between the rejected call and the retry, for legibility.
+#
+# Recovery is otherwise so fast (~1s) that it hides itself: the console polls
+# every 2s, so last_status flips 403 -> 200 between two polls and an observer
+# sees nothing happen at all. Holding the rejected status for longer than one
+# poll interval makes the 403 land in the UI, in red, before the recovery
+# clears it — the fix is more convincing when you can see what it fixed.
+#
+# Set to 0 for production-like behaviour, where the extra latency buys nothing.
+AUTH_RETRY_PAUSE_S = max(0.0, float(os.environ.get("AUTH_RETRY_PAUSE_S", "2.5")))
+
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
@@ -252,12 +288,71 @@ class ApiKeyManager:
         self.fetched_at = None      # epoch of the last successful mint
         self.hard_expires_at = None # epoch the key actually stops being valid
         self.last_error = None
+        self.auth_failures = 0      # consecutive 401/403 that survived a re-mint
+        self.cooldown_until = 0     # epoch; agent makes no calls before this
+        self.last_auth_error = None
+        self.rejections = 0         # cumulative keys rejected out from under us
 
     def get_key(self):
         with self._lock:
             if self._key and time.time() < self._expires_at:
                 return self._key
             return self._refresh()
+
+    def invalidate(self, reason):
+        """Drop the cached key so the next get_key() mints a replacement.
+
+        Called when the gateway rejects the key we hold -- the only path that
+        refreshes on something other than the clock.
+        """
+        with self._lock:
+            if self._key:
+                log(f"🎫 key rejected ({reason}) — discarding and re-minting")
+                # Cumulative, and never reset by a success: auth_failures is
+                # cleared the moment the agent recovers, so it cannot answer
+                # "has this agent been revoked out from under it?" after the
+                # fact. This is what the console's counter reads.
+                self.rejections += 1
+            self._key = None
+            self._expires_at = 0
+            # Clear the expiry too, not just the cached key. hard_expires_at is
+            # what the console renders as "valid XmYs", so leaving it set means
+            # the UI keeps counting down a key the gateway has already refused
+            # — the most misleading thing on the card at exactly the moment
+            # someone is looking at it. last_error replaces the countdown until
+            # _refresh() succeeds and clears it.
+            self.hard_expires_at = None
+            self.fetched_at = None
+            # One word. The console renders this as "failed · <error>" in a
+            # narrow column, and anything longer wrapped the row onto two lines.
+            self.last_error = "revoked"
+
+    def note_auth_failure(self, reason):
+        """A re-minted key was rejected too. Count it, and back off at the threshold."""
+        with self._lock:
+            self.auth_failures += 1
+            self.last_auth_error = reason
+            if self.auth_failures < AUTH_FAIL_THRESHOLD:
+                return 0
+            # 1st trip 30s, then 60, 120, 240, capped. Counting from the
+            # threshold means the first cooldown is always the base.
+            step = self.auth_failures - AUTH_FAIL_THRESHOLD
+            backoff = min(AUTH_COOLDOWN_BASE * (2 ** step), AUTH_COOLDOWN_MAX)
+            self.cooldown_until = time.time() + backoff
+            log(f"⏸ {self.auth_failures} consecutive auth failures ({reason}) — "
+                f"pausing {backoff}s before trying again")
+            return backoff
+
+    def note_success(self):
+        with self._lock:
+            if self.auth_failures:
+                log(f"▶ recovered after {self.auth_failures} auth failure(s)")
+            self.auth_failures = 0
+            self.cooldown_until = 0
+            self.last_auth_error = None
+
+    def cooldown_remaining(self):
+        return max(0.0, self.cooldown_until - time.time())
 
     def _refresh(self):
         jwt = self._tm.get_token()
@@ -297,7 +392,14 @@ class ApiKeyManager:
 
     def info(self):
         """Age/TTL computed agent-side, so the browser's clock never matters."""
-        return token_info(self.fetched_at, self.hard_expires_at, self.last_error)
+        out = token_info(self.fetched_at, self.hard_expires_at, self.last_error)
+        # Surfaced so the console can show "paused, retrying in Ns" rather than
+        # an agent that merely looks idle for no stated reason.
+        out["auth_failures"] = self.auth_failures
+        out["cooldown_s"] = round(self.cooldown_remaining(), 1) or None
+        out["auth_error"] = self.last_auth_error
+        out["rejections"] = self.rejections
+        return out
 
 
 class TokenManager:
@@ -397,17 +499,64 @@ def call_inference(api_key, prompt, model=MODEL_NAME, path=MODEL_PATH):
         return 0, elapsed, 0
 
 
-def send(keys, prompt, model, label):
-    """One inference call: mint/reuse key, record the result, log it."""
+def _attempt(keys, prompt, model, label):
+    """One inference call against the current key. Returns the HTTP status.
+
+    Returns None if no key could be minted at all, which is a different failure
+    from the gateway rejecting one and is counted as a transport error.
+    """
     try:
         api_key = keys.get_key()
     except Exception:
         STATS.record(0, 0.0, 0)
-        _interruptible_sleep(5)
-        return
+        return None
     status, elapsed, tok_count = call_inference(api_key, prompt, model)
     STATS.record(status, elapsed, tok_count)
     log(f"💬 {status_str(status)} {elapsed:.2f}s | {label} | tokens: {tok_count}")
+    return status
+
+
+def send(keys, prompt, model, label):
+    """One inference call, re-minting once if the gateway rejects the key.
+
+    Both attempts are recorded in STATS: they are both real requests that the
+    gateway saw, and hiding the first would make the console disagree with the
+    gateway's own telemetry.
+    """
+    waiting = keys.cooldown_remaining()
+    if waiting > 0:
+        # Short sleeps rather than one long one, so /stop still responds promptly.
+        _interruptible_sleep(min(waiting, 5))
+        return
+
+    status = _attempt(keys, prompt, model, label)
+    if status is None:
+        _interruptible_sleep(5)
+        return
+
+    if status not in AUTH_FAIL_STATUSES:
+        if 200 <= status < 300:
+            keys.note_success()
+        return
+
+    # The key we hold was rejected. It may simply have been revoked out from
+    # under us, so discard it and try once with a fresh one -- but only once,
+    # so a persistent denial cannot mint a key per request.
+    keys.invalidate(f"HTTP {status}")
+    # Pause before retrying so the 403 outlives a console poll — see
+    # AUTH_RETRY_PAUSE_S. Interruptible, so /stop still responds immediately.
+    if AUTH_RETRY_PAUSE_S:
+        _interruptible_sleep(AUTH_RETRY_PAUSE_S)
+    retry = _attempt(keys, prompt, model, label)
+    if retry is None:
+        keys.note_auth_failure("mint failed")
+        _interruptible_sleep(5)
+        return
+
+    if retry in AUTH_FAIL_STATUSES:
+        keys.note_auth_failure(f"HTTP {retry}")
+    elif 200 <= retry < 300:
+        keys.note_success()
 
 
 def run_conversational(profile, keys, model):
